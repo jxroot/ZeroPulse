@@ -132,11 +132,10 @@ async def list_tunnels(current_user: dict = Depends(get_current_user)):
                 "metadata": cf_tunnel.get("metadata", {}),
                 "status": cf_tunnel.get("status", "down"),
                 "remote_config": cf_tunnel.get("remote_config", False),
-                # Additional fields from database
-                "hostname": db_tunnel.get("hostname") if db_tunnel else None,
-                "token": db_tunnel.get("token") if db_tunnel else None,
-                "connection_type": connection_type,
-                "label": db_tunnel.get("label") if db_tunnel else None,
+            # Additional fields from database
+            "token": db_tunnel.get("token") if db_tunnel else None,
+            "connection_type": connection_type,
+            "label": db_tunnel.get("label") if db_tunnel else None,
                 # Group fields
                 "group_id": group_id,
                 "group_name": group_name,
@@ -170,12 +169,7 @@ async def create_tunnel(tunnel_data: Optional[TunnelCreate] = None, current_user
         tunnel_name = result.get("name", tunnel_name)
         
         # Save tunnel info to database
-        await db.save_tunnel_info(
-            tunnel_id, 
-            hostname=tunnel_data.hostname if tunnel_data else None, 
-            token=token,
-            name=tunnel_name
-        )
+        await db.save_tunnel_info(tunnel_id, token=token)
         
         return TunnelResponse(
             success=True,
@@ -221,7 +215,6 @@ async def get_tunnel(tunnel_id: str, current_user: dict = Depends(get_current_us
             "status": cf_tunnel.get("status", "down"),
             "remote_config": cf_tunnel.get("remote_config", False),
             # Additional fields from database
-            "hostname": db_tunnel.get("hostname") if db_tunnel else None,
             "token": db_tunnel.get("token") if db_tunnel else None,
             "label": db_tunnel.get("label") if db_tunnel else None
         }
@@ -725,8 +718,6 @@ async def update_tunnel_routes(tunnel_id: str, routes_data: dict, current_user: 
         # Always update connection_type based on routes (determined above)
         if connection_type:
             update_data["connection_type"] = connection_type
-        # ssh_key_path is fixed to /root/.ssh/id_ed25519, set to None in database
-        update_data["ssh_key_path"] = None
         
         if update_data:
             # Update or create tunnel in database
@@ -737,12 +728,6 @@ async def update_tunnel_routes(tunnel_id: str, routes_data: dict, current_user: 
                 # Create tunnel entry if doesn't exist
                 tunnel_data = {
                     "id": tunnel_id,
-                    "name": cf_tunnel.get("name", ""),
-                    "hostname": None,
-                    "token": None,
-                    "status": "active",
-                    "created_at": cf_tunnel.get("created_at", ""),
-                    "account_id": get_env("CLOUDFLARE_ACCOUNT_ID", ""),
                     **update_data
                 }
                 await db.add_tunnel(tunnel_data)
@@ -802,12 +787,6 @@ async def update_tunnel_label(
             # Create tunnel entry if doesn't exist
             tunnel_data = {
                 "id": tunnel_id,
-                "name": cf_tunnel.get("name", ""),
-                "hostname": None,
-                "token": None,
-                "status": "active",
-                "created_at": cf_tunnel.get("created_at", ""),
-                "account_id": get_env("CLOUDFLARE_ACCOUNT_ID", ""),
                 "label": label
             }
             await db.add_tunnel(tunnel_data)
@@ -874,37 +853,7 @@ async def update_tunnel(
                 logger.exception(f"Error updating tunnel name in Cloudflare: {e}")
                 raise HTTPException(status_code=500, detail=f"Failed to update tunnel name in Cloudflare: {str(e)}")
         
-        # Prepare update data for database
-        db_update_data = {}
-        if tunnel_data.name is not None:
-            db_update_data["name"] = tunnel_data.name
-        if tunnel_data.hostname is not None:
-            # Validate hostname if provided
-            if tunnel_data.hostname:
-                try:
-                    domain = get_env("CLOUDFLARE_DOMAIN", "")
-                    tunnel_data.hostname = validate_hostname(tunnel_data.hostname, domain=domain if domain else None)
-                except ValueError as e:
-                    raise HTTPException(status_code=400, detail=f"Invalid hostname: {str(e)}")
-            db_update_data["hostname"] = tunnel_data.hostname
-        
-        # Update in database
-        db = Database()
-        tunnel = await db.get_tunnel_by_id(tunnel_id)
-        if tunnel:
-            await db.update_tunnel(tunnel_id, db_update_data)
-        else:
-            # Create tunnel entry if doesn't exist
-            tunnel_data_dict = {
-                "id": tunnel_id,
-                "name": tunnel_data.name or cf_tunnel.get("name", ""),
-                "hostname": tunnel_data.hostname,
-                "token": None,
-                "status": "active",
-                "created_at": cf_tunnel.get("created_at", ""),
-                "account_id": get_env("CLOUDFLARE_ACCOUNT_ID", ""),
-            }
-            await db.add_tunnel(tunnel_data_dict)
+        # No database update needed - name is stored in Cloudflare only
         
         logger.info(f"Tunnel updated for {tunnel_id} by {current_user.get('username')}")
         
