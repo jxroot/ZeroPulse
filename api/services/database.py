@@ -56,20 +56,14 @@ class Database:
             await cursor.execute("""
                 CREATE TABLE IF NOT EXISTS tunnels (
                     id TEXT PRIMARY KEY,
-                    name TEXT,
                     default_hostname TEXT,
                     winrm_username TEXT,
                     winrm_password TEXT,
                     winrm_ntlm_hash TEXT,
                     ssh_hostname TEXT,
                     ssh_password TEXT,
-                    hostname TEXT,
                     token TEXT,
-                    status TEXT,
-                    created_at TEXT,
-                    account_id TEXT,
                     connection_type TEXT,
-                    ssh_key_path TEXT,
                     ssh_username TEXT,
                     label TEXT
                 )
@@ -78,11 +72,6 @@ class Database:
             # Add new columns to existing tunnels table if they don't exist (migration)
             try:
                 await cursor.execute("ALTER TABLE tunnels ADD COLUMN connection_type TEXT")
-            except aiosqlite.OperationalError:
-                pass  # Column already exists
-            
-            try:
-                await cursor.execute("ALTER TABLE tunnels ADD COLUMN ssh_key_path TEXT")
             except aiosqlite.OperationalError:
                 pass  # Column already exists
             
@@ -410,24 +399,18 @@ class Database:
                 cursor = await conn.cursor()
                 await cursor.execute("""
                     INSERT OR REPLACE INTO tunnels 
-                    (id, name, default_hostname, winrm_username, winrm_password, winrm_ntlm_hash, ssh_hostname, ssh_password, hostname, token, status, created_at, account_id, connection_type, ssh_key_path, ssh_username, label)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, default_hostname, winrm_username, winrm_password, winrm_ntlm_hash, ssh_hostname, ssh_password, token, connection_type, ssh_username, label)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     tunnel.get("id"),
-                    tunnel.get("name"),
                     tunnel.get("default_hostname"),
                     tunnel.get("winrm_username"),
                     tunnel.get("winrm_password"),
                     tunnel.get("winrm_ntlm_hash"),
                     tunnel.get("ssh_hostname"),
                     tunnel.get("ssh_password"),
-                    tunnel.get("hostname"),
                     tunnel.get("token"),
-                    tunnel.get("status"),
-                    tunnel.get("created_at"),
-                    tunnel.get("account_id"),
                     tunnel.get("connection_type"),
-                    tunnel.get("ssh_key_path"),
                     tunnel.get("ssh_username"),
                     tunnel.get("label")
                 ))
@@ -443,13 +426,11 @@ class Database:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
                 # Select only needed columns instead of SELECT *
-                await cursor.execute("""SELECT id, name, default_hostname, winrm_username, 
+                await cursor.execute("""SELECT id, default_hostname, winrm_username, 
                                               winrm_password, winrm_ntlm_hash, ssh_hostname, 
-                                              ssh_password, hostname, token, status, created_at, 
-                                              account_id, connection_type, ssh_key_path, 
-                                              ssh_username, label 
+                                              ssh_password, token, connection_type, ssh_username, label 
                                        FROM tunnels 
-                                       ORDER BY created_at DESC""")
+                                       ORDER BY id DESC""")
                 rows = await cursor.fetchall()
                 return [dict(row) for row in rows]
         except Exception as e:
@@ -462,11 +443,9 @@ class Database:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
                 # Use indexed column lookup
-                await cursor.execute("""SELECT id, name, default_hostname, winrm_username, 
+                await cursor.execute("""SELECT id, default_hostname, winrm_username, 
                                               winrm_password, winrm_ntlm_hash, ssh_hostname, 
-                                              ssh_password, hostname, token, status, created_at, 
-                                              account_id, connection_type, ssh_key_path, 
-                                              ssh_username, label 
+                                              ssh_password, token, connection_type, ssh_username, label 
                                        FROM tunnels 
                                        WHERE id = ?""", (tunnel_id,))
                 row = await cursor.fetchone()
@@ -475,7 +454,7 @@ class Database:
             logger.exception(f"Error getting tunnel by id: {e}")
             return None
     
-    async def save_tunnel_info(self, tunnel_id: str, hostname: Optional[str] = None, token: Optional[str] = None, name: Optional[str] = None) -> bool:
+    async def save_tunnel_info(self, tunnel_id: str, token: Optional[str] = None) -> bool:
         """Save or update Tunnel information"""
         try:
             async with self._get_connection() as conn:
@@ -486,29 +465,15 @@ class Database:
                 
                 if existing:
                     # Update existing tunnel
-                    update_fields = []
-                    params = []
-                    if hostname is not None:
-                        update_fields.append("hostname = ?")
-                        params.append(hostname)
                     if token is not None:
-                        update_fields.append("token = ?")
-                        params.append(token)
-                    if name is not None:
-                        update_fields.append("name = ?")
-                        params.append(name)
-                    
-                    if update_fields:
-                        params.append(tunnel_id)
-                        query = f"UPDATE tunnels SET {', '.join(update_fields)} WHERE id = ?"
-                        await cursor.execute(query, params)
+                        await cursor.execute("UPDATE tunnels SET token = ? WHERE id = ?", (token, tunnel_id))
                         logger.info(f"Tunnel {tunnel_id} updated")
                 else:
-                    # Insert new tunnel
+                    # Insert new tunnel with just id and token
                     await cursor.execute("""
-                        INSERT INTO tunnels (id, name, hostname, token, created_at)
-                        VALUES (?, ?, ?, ?, ?)
-                    """, (tunnel_id, name or tunnel_id, hostname, token, datetime.now().isoformat()))
+                        INSERT INTO tunnels (id, token)
+                        VALUES (?, ?)
+                    """, (tunnel_id, token))
                     logger.info(f"Tunnel {tunnel_id} saved")
                 return True
         except Exception as e:
@@ -534,9 +499,9 @@ class Database:
         try:
             # Allowed columns for tunnels table
             allowed_columns = [
-                'name', 'default_hostname', 'winrm_username', 'winrm_password', 'winrm_ntlm_hash',
-                'ssh_hostname', 'ssh_password', 'hostname', 'token', 'status', 'created_at',
-                'account_id', 'connection_type', 'ssh_key_path', 'ssh_username', 'label'
+                'default_hostname', 'winrm_username', 'winrm_password', 'winrm_ntlm_hash',
+                'ssh_hostname', 'ssh_password', 'token', 'connection_type', 
+                'ssh_username', 'label'
             ]
             
             # Build update query dynamically with column validation
@@ -852,7 +817,7 @@ class Database:
         try:
             # Use specific columns instead of SELECT * for better performance
             query = """SELECT id, tunnel_id, command, output, error, 
-                             success, timestamp, connection_type, username 
+                             success, timestamp, connection_type, username, password 
                       FROM commands WHERE 1=1"""
             params = []
             
@@ -917,7 +882,7 @@ class Database:
                 cursor = await conn.cursor()
                 # Select specific columns instead of SELECT *
                 await cursor.execute("""SELECT id, tunnel_id, command, output, error, 
-                                              success, timestamp, connection_type, username 
+                                              success, timestamp, connection_type, username, password 
                                        FROM commands 
                                        WHERE id = ?""", (command_id,))
                 row = await cursor.fetchone()
