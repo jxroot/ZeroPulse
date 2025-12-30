@@ -121,25 +121,11 @@ class Database:
             except aiosqlite.OperationalError:
                 pass  # Column already exists
             
-            # Agents table
-            await cursor.execute("""
-                CREATE TABLE IF NOT EXISTS agents (
-                    id TEXT PRIMARY KEY,
-                    hostname TEXT,
-                    ip_address TEXT,
-                    os_info TEXT,
-                    last_seen TEXT,
-                    status TEXT,
-                    metadata TEXT
-                )
-            """)
-            
             # Commands table
             await cursor.execute("""
                 CREATE TABLE IF NOT EXISTS commands (
                     id TEXT PRIMARY KEY,
                     tunnel_id TEXT,
-                    agent_id TEXT,
                     command TEXT,
                     output TEXT,
                     error TEXT,
@@ -396,7 +382,6 @@ class Database:
             await cursor.execute("CREATE INDEX IF NOT EXISTS idx_commands_tunnel_id ON commands(tunnel_id)")
             await cursor.execute("CREATE INDEX IF NOT EXISTS idx_commands_timestamp ON commands(timestamp DESC)")
             await cursor.execute("CREATE INDEX IF NOT EXISTS idx_commands_success ON commands(success)")
-            await cursor.execute("CREATE INDEX IF NOT EXISTS idx_commands_agent_id ON commands(agent_id)")
             await cursor.execute("CREATE INDEX IF NOT EXISTS idx_commands_tunnel_timestamp ON commands(tunnel_id, timestamp DESC)")
             await cursor.execute("CREATE INDEX IF NOT EXISTS idx_modules_name ON modules(name)")
             await cursor.execute("CREATE INDEX IF NOT EXISTS idx_modules_created_at ON modules(created_at DESC)")
@@ -408,8 +393,6 @@ class Database:
             await cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token)")
             await cursor.execute("CREATE INDEX IF NOT EXISTS idx_blacklist_expires_at ON token_blacklist(expires_at)")
             await cursor.execute("CREATE INDEX IF NOT EXISTS idx_tunnels_id ON tunnels(id)")
-            await cursor.execute("CREATE INDEX IF NOT EXISTS idx_agents_id ON agents(id)")
-            await cursor.execute("CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status)")
             
             # Indexes for modular system
             await cursor.execute("CREATE INDEX IF NOT EXISTS idx_module_categories_order ON module_categories(order_index, is_active)")
@@ -815,136 +798,6 @@ class Database:
             logger.exception(f"Error getting tunnel group for name: {e}")
             return None
     
-    # Agent methods
-    async def add_agent(self, agent: Dict) -> bool:
-        """Add new Agent"""
-        try:
-            async with self._get_connection() as conn:
-                cursor = await conn.cursor()
-                # Convert metadata dict to JSON string if needed
-                metadata = agent.get("metadata")
-                if isinstance(metadata, dict):
-                    metadata = json.dumps(metadata)
-                
-                await cursor.execute("""
-                    INSERT OR REPLACE INTO agents 
-                    (id, hostname, ip_address, os_info, last_seen, status, metadata)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    agent.get("id"),
-                    agent.get("hostname"),
-                    agent.get("ip_address"),
-                    agent.get("os_info"),
-                    agent.get("last_seen"),
-                    agent.get("status"),
-                    metadata
-                ))
-            logger.info(f"Agent {agent.get('id')} added/updated")
-            return True
-        except Exception as e:
-            logger.exception(f"Error adding agent: {e}")
-            return False
-    
-    async def get_agents(self) -> List[Dict]:
-        """Get list of Agents"""
-        try:
-            async with self._get_connection() as conn:
-                cursor = await conn.cursor()
-                # Select only needed columns and order by last_seen for better performance
-                await cursor.execute("""SELECT id, hostname, ip_address, os_info, 
-                                              last_seen, status, metadata 
-                                       FROM agents 
-                                       ORDER BY last_seen DESC""")
-                rows = await cursor.fetchall()
-                agents = []
-                for row in rows:
-                    agent = dict(row)
-                    # Parse metadata JSON if exists
-                    if agent.get("metadata"):
-                        try:
-                            agent["metadata"] = json.loads(agent["metadata"])
-                        except:
-                            pass
-                    agents.append(agent)
-                return agents
-        except Exception as e:
-            logger.exception(f"Error getting agents: {e}")
-            return []
-    
-    async def get_agent_by_id(self, agent_id: str) -> Optional[Dict]:
-        """Get Agent by ID"""
-        try:
-            async with self._get_connection() as conn:
-                cursor = await conn.cursor()
-                # Use indexed column lookup
-                await cursor.execute("""SELECT id, hostname, ip_address, os_info, 
-                                              last_seen, status, metadata 
-                                       FROM agents 
-                                       WHERE id = ?""", (agent_id,))
-                row = await cursor.fetchone()
-                if row:
-                    agent = dict(row)
-                    # Parse metadata JSON if exists
-                    if agent.get("metadata"):
-                        try:
-                            agent["metadata"] = json.loads(agent["metadata"])
-                        except:
-                            pass
-                    return agent
-                return None
-        except Exception as e:
-            logger.exception(f"Error getting agent by id: {e}")
-            return None
-    
-    async def update_agent(self, agent_id: str, updates: Dict) -> bool:
-        """Update Agent"""
-        try:
-            # Allowed columns for agents table
-            allowed_columns = ['hostname', 'ip_address', 'os_info', 'last_seen', 'status', 'metadata']
-            
-            # Build update query dynamically with column validation
-            set_clauses = []
-            values = []
-            for key, value in updates.items():
-                # Validate column name to prevent SQL injection
-                sanitized_key = sanitize_column_name(key, allowed_columns)
-                # Convert metadata dict to JSON string
-                if sanitized_key == "metadata" and isinstance(value, dict):
-                    value = json.dumps(value)
-                set_clauses.append(f"{sanitized_key} = ?")
-                values.append(value)
-            
-            if not set_clauses:
-                return False
-            
-            values.append(agent_id)
-            query = f"UPDATE agents SET {', '.join(set_clauses)} WHERE id = ?"
-            
-            async with self._get_connection() as conn:
-                cursor = await conn.cursor()
-                await cursor.execute(query, values)
-                if cursor.rowcount > 0:
-                    logger.info(f"Agent {agent_id} updated")
-                    return True
-                return False
-        except Exception as e:
-            logger.exception(f"Error updating agent: {e}")
-            return False
-    
-    async def delete_agent(self, agent_id: str) -> bool:
-        """Delete Agent"""
-        try:
-            async with self._get_connection() as conn:
-                cursor = await conn.cursor()
-                await cursor.execute("DELETE FROM agents WHERE id = ?", (agent_id,))
-                if cursor.rowcount > 0:
-                    logger.info(f"Agent {agent_id} deleted")
-                    return True
-                return False
-        except Exception as e:
-            logger.exception(f"Error deleting agent: {e}")
-            return False
-    
     # Command history methods
     async def add_command(self, command: Dict) -> bool:
         """Add command to history"""
@@ -954,12 +807,11 @@ class Database:
                 cursor = await conn.cursor()
                 await cursor.execute("""
                     INSERT INTO commands 
-                    (id, tunnel_id, agent_id, command, output, error, success, exit_code, timestamp, connection_type, username, password)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, tunnel_id, command, output, error, success, exit_code, timestamp, connection_type, username, password)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     command.get("id"),
                     command.get("tunnel_id"),
-                    command.get("agent_id"),
                     command.get("command"),
                     command.get("output", ""),
                     command.get("error"),
@@ -991,7 +843,6 @@ class Database:
     async def get_commands(
         self, 
         tunnel_id: Optional[str] = None,
-        agent_id: Optional[str] = None,
         limit: Optional[int] = None,
         offset: int = 0,
         search: Optional[str] = None,
@@ -1000,7 +851,7 @@ class Database:
         """Get command history with filters"""
         try:
             # Use specific columns instead of SELECT * for better performance
-            query = """SELECT id, tunnel_id, agent_id, command, output, error, 
+            query = """SELECT id, tunnel_id, command, output, error, 
                              success, timestamp, connection_type, username 
                       FROM commands WHERE 1=1"""
             params = []
@@ -1008,10 +859,6 @@ class Database:
             if tunnel_id:
                 query += " AND tunnel_id = ?"
                 params.append(tunnel_id)
-            
-            if agent_id:
-                query += " AND agent_id = ?"
-                params.append(agent_id)
             
             if success_only is not None:
                 query += " AND success = ?"
@@ -1069,7 +916,7 @@ class Database:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
                 # Select specific columns instead of SELECT *
-                await cursor.execute("""SELECT id, tunnel_id, agent_id, command, output, error, 
+                await cursor.execute("""SELECT id, tunnel_id, command, output, error, 
                                               success, timestamp, connection_type, username 
                                        FROM commands 
                                        WHERE id = ?""", (command_id,))
@@ -1156,19 +1003,17 @@ class Database:
         """Read data (for backward compatibility)"""
         try:
             tunnels = await self.get_tunnels()
-            agents = await self.get_agents()
             commands = await self.get_commands(limit=10000)  # Get all commands
             modules = await self.get_modules()
             
             return {
                 "tunnels": tunnels,
-                "agents": agents,
                 "commands": commands,
                 "modules": modules
             }
         except Exception as e:
             logger.exception(f"Error reading database: {e}")
-            return {"tunnels": [], "agents": [], "commands": [], "modules": []}
+            return {"tunnels": [], "commands": [], "modules": []}
     
     async def _write_db(self, data: Dict):
         """Write data (for backward compatibility)"""
@@ -2139,10 +1984,6 @@ class Database:
         # Default permissions
         default_permissions = [
             
-            # Agents
-            {"name": "agents:view", "resource": "agents", "action": "view", "description": "View agents"},
-            {"name": "agents:manage", "resource": "agents", "action": "manage", "description": "Manage agents"},
-            
             # Tunnels
             {"name": "tunnels:view", "resource": "tunnels", "action": "view", "description": "View tunnels"},
             {"name": "tunnels:manage", "resource": "tunnels", "action": "manage", "description": "Manage tunnels"},
@@ -2272,8 +2113,6 @@ class Database:
         
         # Assign permissions to operator role
         operator_permissions = [
-            # Agents
-            "agents:view", "agents:manage",
             # Tunnels
             "tunnels:view", "tunnels:manage", "tunnels:connect",
             # Commands
@@ -2309,8 +2148,6 @@ class Database:
         
         # Assign permissions to viewer role
         viewer_permissions = [
-            # Agents
-            "agents:view",
             # Tunnels
             "tunnels:view",
             # Commands
