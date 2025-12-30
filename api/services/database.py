@@ -348,6 +348,40 @@ class Database:
             # Migration: Remove email and full_name columns if they exist
             await self._migrate_remove_user_email_fullname(cursor)
             
+            # Tunnel Groups table
+            await cursor.execute("""
+                CREATE TABLE IF NOT EXISTS tunnel_groups (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    color TEXT,
+                    order_index INTEGER DEFAULT 0,
+                    created_at TEXT NOT NULL
+                )
+            """)
+            
+            # Tunnel Group Rules table
+            await cursor.execute("""
+                CREATE TABLE IF NOT EXISTS tunnel_group_rules (
+                    id TEXT PRIMARY KEY,
+                    group_id TEXT NOT NULL,
+                    pattern TEXT NOT NULL,
+                    pattern_type TEXT NOT NULL,
+                    order_index INTEGER DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (group_id) REFERENCES tunnel_groups(id) ON DELETE CASCADE
+                )
+            """)
+            
+            # User Settings table
+            await cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_settings (
+                    user_id TEXT PRIMARY KEY,
+                    tunnel_name_pattern TEXT,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """)
+            
             # Create indexes
             await cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
             await cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_role ON users(role_id)")
@@ -387,7 +421,7 @@ class Database:
     
     # Tunnel methods
     async def add_tunnel(self, tunnel: Dict) -> bool:
-        """افزودن Tunnel جدید"""
+        """Add new Tunnel"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -421,7 +455,7 @@ class Database:
             return False
     
     async def get_tunnels(self) -> List[Dict]:
-        """دریافت لیست Tunnel‌ها"""
+        """Get list of Tunnels"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -440,7 +474,7 @@ class Database:
             return []
     
     async def get_tunnel_by_id(self, tunnel_id: str) -> Optional[Dict]:
-        """دریافت Tunnel بر اساس ID"""
+        """Get Tunnel by ID"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -458,8 +492,48 @@ class Database:
             logger.exception(f"Error getting tunnel by id: {e}")
             return None
     
+    async def save_tunnel_info(self, tunnel_id: str, hostname: Optional[str] = None, token: Optional[str] = None, name: Optional[str] = None) -> bool:
+        """Save or update Tunnel information"""
+        try:
+            async with self._get_connection() as conn:
+                cursor = await conn.cursor()
+                # Check if tunnel exists
+                await cursor.execute("SELECT id FROM tunnels WHERE id = ?", (tunnel_id,))
+                existing = await cursor.fetchone()
+                
+                if existing:
+                    # Update existing tunnel
+                    update_fields = []
+                    params = []
+                    if hostname is not None:
+                        update_fields.append("hostname = ?")
+                        params.append(hostname)
+                    if token is not None:
+                        update_fields.append("token = ?")
+                        params.append(token)
+                    if name is not None:
+                        update_fields.append("name = ?")
+                        params.append(name)
+                    
+                    if update_fields:
+                        params.append(tunnel_id)
+                        query = f"UPDATE tunnels SET {', '.join(update_fields)} WHERE id = ?"
+                        await cursor.execute(query, params)
+                        logger.info(f"Tunnel {tunnel_id} updated")
+                else:
+                    # Insert new tunnel
+                    await cursor.execute("""
+                        INSERT INTO tunnels (id, name, hostname, token, created_at)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (tunnel_id, name or tunnel_id, hostname, token, datetime.now().isoformat()))
+                    logger.info(f"Tunnel {tunnel_id} saved")
+                return True
+        except Exception as e:
+            logger.exception(f"Error saving tunnel info: {e}")
+            return False
+    
     async def delete_tunnel(self, tunnel_id: str) -> bool:
-        """حذف Tunnel"""
+        """Delete Tunnel"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -473,7 +547,7 @@ class Database:
             return False
     
     async def update_tunnel(self, tunnel_id: str, updates: Dict) -> bool:
-        """به‌روزرسانی Tunnel"""
+        """Update Tunnel"""
         try:
             # Allowed columns for tunnels table
             allowed_columns = [
@@ -508,9 +582,242 @@ class Database:
             logger.exception(f"Error updating tunnel: {e}")
             return False
     
+    # User Settings methods
+    async def get_user_settings(self, user_id: str) -> Optional[Dict]:
+        """Get user settings"""
+        try:
+            async with self._get_connection() as conn:
+                cursor = await conn.cursor()
+                await cursor.execute("SELECT * FROM user_settings WHERE user_id = ?", (user_id,))
+                row = await cursor.fetchone()
+                return dict(row) if row else None
+        except Exception as e:
+            logger.exception(f"Error getting user settings: {e}")
+            return None
+    
+    async def update_user_settings(self, user_id: str, settings: Dict) -> bool:
+        """Update user settings"""
+        try:
+            from datetime import datetime
+            async with self._get_connection() as conn:
+                cursor = await conn.cursor()
+                existing = await self.get_user_settings(user_id)
+                updated_at = datetime.now().isoformat()
+                
+                if existing:
+                    set_clauses = []
+                    values = []
+                    allowed_keys = ['tunnel_name_pattern']
+                    for key, value in settings.items():
+                        if key in allowed_keys:
+                            set_clauses.append(f"{key} = ?")
+                            values.append(value)
+                    
+                    if set_clauses:
+                        set_clauses.append("updated_at = ?")
+                        values.append(updated_at)
+                        values.append(user_id)
+                        query = f"UPDATE user_settings SET {', '.join(set_clauses)} WHERE user_id = ?"
+                        await cursor.execute(query, values)
+                else:
+                    tunnel_name_pattern = settings.get('tunnel_name_pattern')
+                    await cursor.execute("""
+                        INSERT INTO user_settings (user_id, tunnel_name_pattern, updated_at)
+                        VALUES (?, ?, ?)
+                    """, (user_id, tunnel_name_pattern, updated_at))
+                
+                return True
+        except Exception as e:
+            logger.exception(f"Error updating user settings: {e}")
+            return False
+    
+    # Tunnel Groups methods
+    async def get_tunnel_groups(self) -> List[Dict]:
+        """Get all tunnel groups"""
+        try:
+            async with self._get_connection() as conn:
+                cursor = await conn.cursor()
+                await cursor.execute("SELECT * FROM tunnel_groups ORDER BY order_index, name")
+                return [dict(row) for row in await cursor.fetchall()]
+        except Exception as e:
+            logger.exception(f"Error getting tunnel groups: {e}")
+            return []
+    
+    async def create_tunnel_group(self, group_data: Dict) -> bool:
+        """Create a new tunnel group"""
+        try:
+            from datetime import datetime
+            import uuid
+            async with self._get_connection() as conn:
+                cursor = await conn.cursor()
+                group_id = group_data.get('id') or str(uuid.uuid4())
+                await cursor.execute("""
+                    INSERT INTO tunnel_groups (id, name, color, order_index, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (
+                    group_id,
+                    group_data.get('name'),
+                    group_data.get('color'),
+                    group_data.get('order_index', 0),
+                    datetime.now().isoformat()
+                ))
+                return True
+        except Exception as e:
+            logger.exception(f"Error creating tunnel group: {e}")
+            return False
+    
+    async def update_tunnel_group(self, group_id: str, group_data: Dict) -> bool:
+        """Update a tunnel group"""
+        try:
+            async with self._get_connection() as conn:
+                cursor = await conn.cursor()
+                set_clauses = []
+                values = []
+                allowed_keys = ['name', 'color', 'order_index']
+                for key, value in group_data.items():
+                    if key in allowed_keys:
+                        set_clauses.append(f"{key} = ?")
+                        values.append(value)
+                
+                if not set_clauses:
+                    return False
+                
+                values.append(group_id)
+                query = f"UPDATE tunnel_groups SET {', '.join(set_clauses)} WHERE id = ?"
+                await cursor.execute(query, values)
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.exception(f"Error updating tunnel group: {e}")
+            return False
+    
+    async def delete_tunnel_group(self, group_id: str) -> bool:
+        """Delete a tunnel group (cascades to rules)"""
+        try:
+            async with self._get_connection() as conn:
+                cursor = await conn.cursor()
+                await cursor.execute("DELETE FROM tunnel_groups WHERE id = ?", (group_id,))
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.exception(f"Error deleting tunnel group: {e}")
+            return False
+    
+    # Tunnel Group Rules methods
+    async def get_tunnel_group_rules(self) -> List[Dict]:
+        """Get all tunnel group rules"""
+        try:
+            async with self._get_connection() as conn:
+                cursor = await conn.cursor()
+                await cursor.execute("SELECT * FROM tunnel_group_rules ORDER BY order_index, created_at")
+                return [dict(row) for row in await cursor.fetchall()]
+        except Exception as e:
+            logger.exception(f"Error getting tunnel group rules: {e}")
+            return []
+    
+    async def create_tunnel_group_rule(self, rule_data: Dict) -> bool:
+        """Create a new tunnel group rule"""
+        try:
+            from datetime import datetime
+            import uuid
+            async with self._get_connection() as conn:
+                cursor = await conn.cursor()
+                rule_id = rule_data.get('id') or str(uuid.uuid4())
+                await cursor.execute("""
+                    INSERT INTO tunnel_group_rules (id, group_id, pattern, pattern_type, order_index, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    rule_id,
+                    rule_data.get('group_id'),
+                    rule_data.get('pattern'),
+                    rule_data.get('pattern_type', 'prefix'),
+                    rule_data.get('order_index', 0),
+                    datetime.now().isoformat()
+                ))
+                return True
+        except Exception as e:
+            logger.exception(f"Error creating tunnel group rule: {e}")
+            return False
+    
+    async def update_tunnel_group_rule(self, rule_id: str, rule_data: Dict) -> bool:
+        """Update a tunnel group rule"""
+        try:
+            async with self._get_connection() as conn:
+                cursor = await conn.cursor()
+                set_clauses = []
+                values = []
+                allowed_keys = ['group_id', 'pattern', 'pattern_type', 'order_index']
+                for key, value in rule_data.items():
+                    if key in allowed_keys:
+                        set_clauses.append(f"{key} = ?")
+                        values.append(value)
+                
+                if not set_clauses:
+                    return False
+                
+                values.append(rule_id)
+                query = f"UPDATE tunnel_group_rules SET {', '.join(set_clauses)} WHERE id = ?"
+                await cursor.execute(query, values)
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.exception(f"Error updating tunnel group rule: {e}")
+            return False
+    
+    async def delete_tunnel_group_rule(self, rule_id: str) -> bool:
+        """Delete a tunnel group rule"""
+        try:
+            async with self._get_connection() as conn:
+                cursor = await conn.cursor()
+                await cursor.execute("DELETE FROM tunnel_group_rules WHERE id = ?", (rule_id,))
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.exception(f"Error deleting tunnel group rule: {e}")
+            return False
+    
+    async def get_tunnel_group_for_name(self, tunnel_name: str) -> Optional[Dict]:
+        """Find the group for a tunnel name based on rules"""
+        try:
+            async with self._get_connection() as conn:
+                cursor = await conn.cursor()
+                await cursor.execute("""
+                    SELECT r.*, g.name as group_name, g.color as group_color
+                    FROM tunnel_group_rules r
+                    INNER JOIN tunnel_groups g ON r.group_id = g.id
+                    ORDER BY r.order_index
+                """)
+                rules = await cursor.fetchall()
+                
+                import re
+                for rule_row in rules:
+                    rule = dict(rule_row)
+                    pattern = rule.get('pattern', '')
+                    pattern_type = rule.get('pattern_type', 'prefix')
+                    
+                    if pattern_type == 'prefix':
+                        if tunnel_name.startswith(pattern):
+                            return {
+                                'group_id': rule.get('group_id'),
+                                'group_name': rule.get('group_name'),
+                                'group_color': rule.get('group_color')
+                            }
+                    elif pattern_type == 'regex':
+                        try:
+                            if re.match(pattern, tunnel_name):
+                                return {
+                                    'group_id': rule.get('group_id'),
+                                    'group_name': rule.get('group_name'),
+                                    'group_color': rule.get('group_color')
+                                }
+                        except re.error:
+                            logger.warning(f"Invalid regex pattern: {pattern}")
+                            continue
+                
+                return None
+        except Exception as e:
+            logger.exception(f"Error getting tunnel group for name: {e}")
+            return None
+    
     # Agent methods
     async def add_agent(self, agent: Dict) -> bool:
-        """افزودن Agent جدید"""
+        """Add new Agent"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -539,7 +846,7 @@ class Database:
             return False
     
     async def get_agents(self) -> List[Dict]:
-        """دریافت لیست Agent‌ها"""
+        """Get list of Agents"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -565,7 +872,7 @@ class Database:
             return []
     
     async def get_agent_by_id(self, agent_id: str) -> Optional[Dict]:
-        """دریافت Agent بر اساس ID"""
+        """Get Agent by ID"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -590,7 +897,7 @@ class Database:
             return None
     
     async def update_agent(self, agent_id: str, updates: Dict) -> bool:
-        """به‌روزرسانی Agent"""
+        """Update Agent"""
         try:
             # Allowed columns for agents table
             allowed_columns = ['hostname', 'ip_address', 'os_info', 'last_seen', 'status', 'metadata']
@@ -625,7 +932,7 @@ class Database:
             return False
     
     async def delete_agent(self, agent_id: str) -> bool:
-        """حذف Agent"""
+        """Delete Agent"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -640,7 +947,7 @@ class Database:
     
     # Command history methods
     async def add_command(self, command: Dict) -> bool:
-        """افزودن دستور به تاریخچه"""
+        """Add command to history"""
         try:
             logger.info(f"Adding command to history: {command.get('command', 'unknown')[:50]}...")
             async with self._get_connection() as conn:
@@ -690,7 +997,7 @@ class Database:
         search: Optional[str] = None,
         success_only: Optional[bool] = None
     ) -> List[Dict]:
-        """دریافت تاریخچه دستورات با فیلتر"""
+        """Get command history with filters"""
         try:
             # Use specific columns instead of SELECT * for better performance
             query = """SELECT id, tunnel_id, agent_id, command, output, error, 
@@ -757,7 +1064,7 @@ class Database:
             return []
     
     async def get_command_by_id(self, command_id: str) -> Optional[Dict]:
-        """دریافت یک دستور بر اساس ID"""
+        """Get a command by ID"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -782,7 +1089,7 @@ class Database:
             return None
     
     async def delete_command(self, command_id: str) -> bool:
-        """حذف یک دستور از تاریخچه"""
+        """Delete a command from history"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -796,7 +1103,7 @@ class Database:
             return False
     
     async def clear_commands(self, tunnel_id: Optional[str] = None) -> int:
-        """پاک کردن تمام دستورات (یا دستورات یک tunnel)"""
+        """Clear all commands (or commands for a tunnel)"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -817,7 +1124,7 @@ class Database:
             return 0
     
     async def get_command_stats(self, tunnel_id: Optional[str] = None) -> Dict:
-        """آمار دستورات"""
+        """Command statistics"""
         try:
             query = "SELECT COUNT(*) as total, SUM(success) as successful FROM commands WHERE 1=1"
             params = []
@@ -846,7 +1153,7 @@ class Database:
     
     # Module methods (for backward compatibility with settings.py)
     async def _read_db(self) -> Dict:
-        """خواندن داده‌ها (برای backward compatibility)"""
+        """Read data (for backward compatibility)"""
         try:
             tunnels = await self.get_tunnels()
             agents = await self.get_agents()
@@ -864,7 +1171,7 @@ class Database:
             return {"tunnels": [], "agents": [], "commands": [], "modules": []}
     
     async def _write_db(self, data: Dict):
-        """نوشتن داده‌ها (برای backward compatibility)"""
+        """Write data (for backward compatibility)"""
         try:
             # This is mainly for modules compatibility
             if "modules" in data:
@@ -879,7 +1186,7 @@ class Database:
             logger.exception(f"Error writing database: {e}")
     
     async def get_modules(self) -> List[Dict]:
-        """دریافت لیست ماژول‌ها"""
+        """Get list of modules"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -895,7 +1202,7 @@ class Database:
             return []
     
     async def get_module_by_id(self, module_id: str) -> Optional[Dict]:
-        """دریافت ماژول بر اساس ID"""
+        """Get module by ID"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -911,7 +1218,7 @@ class Database:
             return None
     
     async def get_module_by_name(self, name: str) -> Optional[Dict]:
-        """دریافت ماژول بر اساس نام"""
+        """Get module by name"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -927,7 +1234,7 @@ class Database:
             return None
     
     async def add_module(self, module: Dict) -> bool:
-        """افزودن ماژول جدید"""
+        """Add new module"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -953,7 +1260,7 @@ class Database:
             return False
     
     async def update_module(self, module_id: str, updates: Dict) -> bool:
-        """به‌روزرسانی ماژول"""
+        """Update module"""
         try:
             # Allowed columns for modules table
             allowed_columns = ['name', 'description', 'script', 'updated_at']
@@ -991,7 +1298,7 @@ class Database:
             return False
     
     async def delete_module(self, module_id: str) -> bool:
-        """حذف ماژول"""
+        """Delete module"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1006,7 +1313,7 @@ class Database:
     
     # API Token methods
     async def add_api_token(self, token_data: Dict) -> bool:
-        """افزودن API Token جدید"""
+        """Add new API Token"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1037,7 +1344,7 @@ class Database:
             return False
     
     async def get_api_tokens(self, include_inactive: bool = False) -> List[Dict]:
-        """دریافت لیست API Token‌ها"""
+        """Get list of API Tokens"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1079,7 +1386,7 @@ class Database:
             return []
     
     async def get_api_token_by_hash(self, token_hash: str) -> Optional[Dict]:
-        """دریافت API Token با hash"""
+        """Get API Token by hash"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1109,7 +1416,7 @@ class Database:
             return None
     
     async def update_api_token_last_used(self, token_hash: str) -> bool:
-        """به‌روزرسانی آخرین استفاده از token"""
+        """Update last usage of token"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1124,7 +1431,7 @@ class Database:
             return False
     
     async def delete_api_token(self, token_id: str) -> bool:
-        """حذف API Token"""
+        """Delete API Token"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1138,7 +1445,7 @@ class Database:
             return False
     
     async def deactivate_api_token(self, token_id: str) -> bool:
-        """غیرفعال کردن API Token"""
+        """Disable API Token"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1152,7 +1459,7 @@ class Database:
             return False
     
     async def update_api_token(self, token_id: str, updates: Dict) -> bool:
-        """به‌روزرسانی API Token"""
+        """Update API Token"""
         try:
             # Allowed columns for api_tokens table
             allowed_columns = ['name', 'description', 'permissions', 'expires_at', 'never_expires', 'is_active']
@@ -1195,7 +1502,7 @@ class Database:
             return False
     
     async def get_api_token_by_id(self, token_id: str) -> Optional[Dict]:
-        """دریافت API Token با ID"""
+        """Get API Token by ID"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1223,7 +1530,7 @@ class Database:
     
     # Session methods
     async def add_session(self, session_data: Dict) -> bool:
-        """افزودن session جدید"""
+        """Add new session"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1247,7 +1554,7 @@ class Database:
             return False
     
     async def get_session(self, token: str) -> Optional[Dict]:
-        """دریافت session با token"""
+        """Get session by token"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1267,28 +1574,36 @@ class Database:
             return None
     
     async def get_all_sessions(self) -> List[Dict]:
-        """دریافت تمام sessions"""
+        """Get all sessions"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
                 await cursor.execute("SELECT * FROM sessions ORDER BY created_at DESC")
                 rows = await cursor.fetchall()
+                logger.debug(f"Retrieved {len(rows)} session rows from database")
                 sessions = []
                 for row in rows:
                     session_dict = dict(row)
                     # Convert token_partial back to token for compatibility
                     full_token = session_dict.get("token", "")
                     token_partial = session_dict.get("token_partial", "")
+                    
+                    # Log if full_token is missing or too short
+                    if not full_token or len(full_token) < 50:
+                        logger.warning(f"Session for user {session_dict.get('username', 'unknown')} has invalid full_token (length: {len(full_token) if full_token else 0})")
+                    
                     session_dict["token"] = token_partial if token_partial else (full_token[:20] + "..." + full_token[-10:] if len(full_token) > 30 else full_token)
                     session_dict["full_token"] = full_token
                     sessions.append(session_dict)
+                
+                logger.debug(f"Returning {len(sessions)} sessions from get_all_sessions")
                 return sessions
         except Exception as e:
             logger.exception(f"Error getting all sessions: {e}")
             return []
     
     async def update_session_activity(self, token: str, last_activity: str) -> bool:
-        """به‌روزرسانی last_activity یک session"""
+        """Update last_activity of a session"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1301,7 +1616,7 @@ class Database:
             return False
     
     async def remove_session(self, token: str) -> bool:
-        """حذف session"""
+        """Delete session"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1312,7 +1627,7 @@ class Database:
             return False
     
     async def remove_expired_sessions(self) -> int:
-        """حذف sessions منقضی شده"""
+        """Delete expired sessions"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1325,7 +1640,7 @@ class Database:
     
     # Blacklist methods
     async def add_to_blacklist(self, token: str, expires_at: str) -> bool:
-        """اضافه کردن token به blacklist"""
+        """Add token to blacklist"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1346,7 +1661,7 @@ class Database:
             return False
     
     async def is_token_in_blacklist(self, token: str) -> bool:
-        """بررسی اینکه آیا token در blacklist است یا نه"""
+        """Check if token is in blacklist"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1364,7 +1679,7 @@ class Database:
             return False
     
     async def remove_from_blacklist(self, token: str) -> bool:
-        """حذف token از blacklist"""
+        """Remove token from blacklist"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1375,7 +1690,7 @@ class Database:
             return False
     
     async def cleanup_blacklist(self) -> int:
-        """پاک کردن token های منقضی شده از blacklist"""
+        """Clear expired tokens from blacklist"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1392,7 +1707,7 @@ class Database:
     
     # Module Categories Methods
     async def get_module_categories(self, active_only: bool = False) -> List[Dict]:
-        """دریافت لیست دسته‌بندی‌های ماژول"""
+        """Get list of module categories"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1407,7 +1722,7 @@ class Database:
             return []
     
     async def get_module_category(self, category_id: str) -> Optional[Dict]:
-        """دریافت یک دسته‌بندی خاص"""
+        """Get a specific category"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1419,7 +1734,7 @@ class Database:
             return None
     
     async def add_module_category(self, category: Dict) -> bool:
-        """افزودن دسته‌بندی جدید"""
+        """Add new category"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1449,7 +1764,7 @@ class Database:
             return False
     
     async def update_module_category(self, category_id: str, category: Dict) -> bool:
-        """به‌روزرسانی دسته‌بندی"""
+        """Update category"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1498,7 +1813,7 @@ class Database:
             return False
     
     async def delete_module_category(self, category_id: str) -> bool:
-        """حذف دسته‌بندی"""
+        """Delete category"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1510,7 +1825,7 @@ class Database:
     
     # Module Sections Methods
     async def get_module_sections(self, category_id: Optional[str] = None, active_only: bool = False) -> List[Dict]:
-        """دریافت لیست بخش‌های ماژول"""
+        """Get list of module sections"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1531,7 +1846,7 @@ class Database:
             return []
     
     async def get_module_section(self, section_id: str) -> Optional[Dict]:
-        """دریافت یک بخش خاص"""
+        """Get a specific section"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1543,7 +1858,7 @@ class Database:
             return None
     
     async def add_module_section(self, section: Dict) -> bool:
-        """افزودن بخش جدید"""
+        """Add new section"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1569,7 +1884,7 @@ class Database:
             return False
     
     async def update_module_section(self, section_id: str, section: Dict) -> bool:
-        """به‌روزرسانی بخش"""
+        """Update section"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1593,7 +1908,7 @@ class Database:
             return False
     
     async def delete_module_section(self, section_id: str) -> bool:
-        """حذف بخش"""
+        """Delete section"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1605,7 +1920,7 @@ class Database:
     
     # Module Items Methods
     async def get_module_items(self, section_id: Optional[str] = None, active_only: bool = False) -> List[Dict]:
-        """دریافت لیست آیتم‌های ماژول"""
+        """Get list of module items"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1626,7 +1941,7 @@ class Database:
             return []
     
     async def get_module_item(self, item_id: str) -> Optional[Dict]:
-        """دریافت یک آیتم خاص"""
+        """Get a specific item"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1638,7 +1953,7 @@ class Database:
             return None
     
     async def add_module_item(self, item: Dict) -> bool:
-        """افزودن آیتم جدید"""
+        """Add new item"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1668,7 +1983,7 @@ class Database:
             return False
     
     async def update_module_item(self, item_id: str, item: Dict) -> bool:
-        """به‌روزرسانی آیتم"""
+        """Update item"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1696,7 +2011,7 @@ class Database:
             return False
     
     async def delete_module_item(self, item_id: str) -> bool:
-        """حذف آیتم"""
+        """Delete item"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()
@@ -1707,7 +2022,7 @@ class Database:
             return False
     
     async def get_full_module_structure(self) -> List[Dict]:
-        """دریافت ساختار کامل ماژول‌ها (دسته‌بندی + بخش + آیتم)"""
+        """Get complete module structure (category + section + item)"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.cursor()

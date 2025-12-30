@@ -23,7 +23,15 @@ const TunnelCard = ({ tunnel }) => {
 
   const statusBadgeClass = tunnel.status === 'healthy' 
     ? 'bg-green-500 text-white' 
+    : tunnel.status === 'inactive'
+    ? 'bg-gray-500 text-white'
     : 'bg-red-500 text-white'
+  
+  const getStatusText = () => {
+    if (tunnel.status === 'healthy') return 'Healthy'
+    if (tunnel.status === 'inactive') return 'Inactive'
+    return 'Down'
+  }
 
   const activeConnectionTypes = useMemo(() => {
     const types = []
@@ -99,7 +107,12 @@ const TunnelCard = ({ tunnel }) => {
   }
 
   return (
-    <div className="card p-4 flex flex-col min-h-[380px] hover:border-purple-500 transition-all">
+    <div 
+      className="card p-4 flex flex-col min-h-[380px] hover:border-purple-500 transition-all"
+      style={{
+        opacity: tunnel.status === 'inactive' ? 0.6 : 1
+      }}
+    >
       {/* Header */}
       <div className="flex justify-between items-start mb-3.5 pb-3.5 border-b border-gray-800">
         <div className="flex-1 pr-3.5">
@@ -163,7 +176,7 @@ const TunnelCard = ({ tunnel }) => {
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <span className={`px-3 py-1 rounded-xl text-xs font-semibold ${statusBadgeClass}`}>
-            {tunnel.status === 'healthy' ? 'Healthy' : 'Down'}
+            {getStatusText()}
           </span>
           {tunnel.status === 'healthy' && winrmStatus.port && (
             <span className="bg-[#667eea] text-white px-3 py-1 rounded-xl text-xs font-semibold" title="WinRM Port">

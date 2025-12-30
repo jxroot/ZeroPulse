@@ -466,18 +466,18 @@ class CloudflareService:
                         name=self.domain
                     )
                     
-                    # بررسی نتیجه
+                    # Check result
                     domain_found = False
                     if hasattr(zones_page, 'result') and zones_page.result:
                         logger.debug(f"Found {len(zones_page.result)} zone(s) matching domain name")
                         for zone in zones_page.result:
-                            # تبدیل zone object به dict
+                            # Convert zone object to dict
                             if hasattr(zone, 'model_dump'):
                                 zone_dict = zone.model_dump(mode='json')
                             elif hasattr(zone, 'dict'):
                                 zone_dict = zone.dict()
                             else:
-                                # اگر model_dump و dict موجود نبود، فیلدهای اصلی را دستی می‌گیریم
+                                # If model_dump and dict are not available, get main fields manually
                                 zone_dict = {
                                     "id": getattr(zone, 'id', None),
                                     "name": getattr(zone, 'name', None),
@@ -489,7 +489,7 @@ class CloudflareService:
                                     "modified_on": getattr(zone, 'modified_on', None),
                                 }
                             
-                            # Log تمام فیلدهای zone برای debugging
+                            # Log all zone fields for debugging
                             logger.debug(f"Zone object fields: {list(zone_dict.keys())}")
                             
                             zone_name = zone_dict.get("name", "")
@@ -501,13 +501,13 @@ class CloudflareService:
                             if zone_name.lower() == self.domain.lower():
                                 domain_found = True
                                 
-                                # بررسی Account ID از zone object
+                                # Check Account ID from zone object
                                 zone_account = zone_dict.get("account", {})
                                 if isinstance(zone_account, dict):
                                     zone_account_id = zone_account.get("id", "")
                                     zone_account_name = zone_account.get("name", "")
                                 else:
-                                    # اگر account یک object است نه dict
+                                    # If account is an object not a dict
                                     zone_account_id = getattr(zone_account, 'id', None) if zone_account else None
                                     zone_account_name = getattr(zone_account, 'name', None) if zone_account else None
                                 
@@ -540,7 +540,7 @@ class CloudflareService:
                     error_msg = str(e)
                     error_type = type(e).__name__
                     
-                    # بررسی نوع خطا و تبدیل به پیام واضح
+                    # Check error type and convert to clear message
                     # Check for common Cloudflare API error patterns
                     error_lower = error_msg.lower()
                     
@@ -701,13 +701,13 @@ class CloudflareService:
     
     def _record_to_dict(self, record) -> Dict[str, Any]:
         """
-        تبدیل record object به dictionary
+        Convert record object to dictionary
         
         Args:
-            record: Record object از SDK
+            record: Record object from SDK
             
         Returns:
-            Dict: Record به صورت dictionary
+            Dict: Record as dictionary
         """
         if hasattr(record, 'model_dump'):
             return record.model_dump(mode='json')
@@ -724,15 +724,15 @@ class CloudflareService:
     
     def _find_dns_record_in_results(self, records_page, name: str, hostname: str) -> Optional[Tuple[str, Optional[bool]]]:
         """
-        جستجوی DNS record در نتایج SDK
+        Search for DNS record in SDK results
         
         Args:
-            records_page: نتایج از SDK
+            records_page: Results from SDK
             name: Subdomain name
             hostname: Full hostname
             
         Returns:
-            Tuple of (record_id, existing_proxied) یا None
+            Tuple of (record_id, existing_proxied) or None
         """
         if not hasattr(records_page, 'result') or not records_page.result:
             return None
@@ -746,7 +746,7 @@ class CloudflareService:
             record_name = record_dict.get("name", "")
             record_name_lower = record_name.lower()
             
-            # بررسی تطابق - case-insensitive
+            # Check match - case-insensitive
             if (record_name_lower == name_lower or 
                 record_name_lower == hostname_lower or 
                 record_name_lower == f"{name_lower}.{domain_lower}"):
@@ -758,21 +758,21 @@ class CloudflareService:
     
     async def set_tunnel_config(self, tunnel_id: str, hostname: str, port: int = 5986) -> bool:
         """
-        تنظیم Config Tunnel برای هدایت ترافیک به localhost:port با استفاده از SDK رسمی Cloudflare
+        Set Tunnel Config to route traffic to localhost:port using official Cloudflare SDK
         
         Args:
-            tunnel_id: ID Tunnel
-            hostname: Hostname برای Tunnel
-            port: پورت مقصد (پیش‌فرض 5986)
+            tunnel_id: Tunnel ID
+            hostname: Hostname for Tunnel
+            port: Destination port (default 5986)
         
         Returns:
-            bool: موفقیت یا عدم موفقیت
+            bool: Success or failure
         """
         try:
-            # استفاده از SDK رسمی Cloudflare
+            # Use official Cloudflare SDK
             logger.debug(f"Setting tunnel config using Cloudflare SDK for tunnel {tunnel_id}, hostname: {hostname}, port: {port}")
             
-            # ساخت config object
+            # Build config object
             config_dict = {
                 "ingress": [
                     {
@@ -785,7 +785,7 @@ class CloudflareService:
                 ]
             }
             
-            # به‌روزرسانی config با SDK
+            # Update config with SDK
             configuration = await asyncio.to_thread(
 
                 self.sdk_client.zero_trust.tunnels.cloudflared.configurations.update,
@@ -798,13 +798,13 @@ class CloudflareService:
 
             )
             
-            # بررسی موفقیت - استفاده از همان منطق update_tunnel_config
+            # Check success - use same logic as update_tunnel_config
             if hasattr(configuration, 'success') and configuration.success:
                 logger.debug(f"Successfully set tunnel config using SDK (success=True)")
                 return True
             elif hasattr(configuration, 'result') and configuration.result:
                 result = configuration.result
-                # بررسی اینکه result معتبر است
+                # Check that result is valid
                 if hasattr(result, 'tunnel_id') or hasattr(result, 'config') or (isinstance(result, dict) and (result.get('tunnel_id') or result.get('config'))):
                     logger.debug(f"Successfully set tunnel config using SDK (has valid result)")
                     return True
@@ -816,7 +816,7 @@ class CloudflareService:
                 
         except Exception as e:
             logger.exception(f"Error setting tunnel config with SDK: {e}")
-            # Fallback به روش قدیمی در صورت خطا
+            # Fallback to old method on error
             logger.warning("Falling back to REST API method")
             try:
                 url = f"{self.base_url}/accounts/{self.account_id}/cfd_tunnel/{tunnel_id}/configurations"
@@ -845,34 +845,34 @@ class CloudflareService:
     
     async def update_tunnel_config(self, tunnel_id: str, config: Dict[str, Any]) -> bool:
         """
-        به‌روزرسانی Config Tunnel با استفاده از SDK رسمی Cloudflare
+        Update Tunnel Config using official Cloudflare SDK
         
         Args:
-            tunnel_id: ID Tunnel
-            config: Config object با ingress array (می‌تواند شامل "config" key باشد یا مستقیماً config object)
+            tunnel_id: Tunnel ID
+            config: Config object with ingress array (can include "config" key or be directly a config object)
         
         Returns:
-            bool: موفقیت یا عدم موفقیت
+            bool: Success or failure
         """
         try:
-            # استفاده از SDK رسمی Cloudflare
+            # Use official Cloudflare SDK
             logger.debug(f"Updating tunnel config using Cloudflare SDK for tunnel {tunnel_id}")
             
-            # استخراج config از dict اگر "config" key وجود دارد
+            # Extract config from dict if "config" key exists
             config_data = config.get("config", config) if isinstance(config, dict) and "config" in config else config
             
-            # اطمینان از اینکه config_data یک dict است
+            # Ensure config_data is a dict
             if not isinstance(config_data, dict):
                 raise ValueError(f"config_data must be a dict, got {type(config_data)}")
             
-            # تبدیل warp-routing به warp_routing برای SDK (SDK ممکن است snake_case را ترجیح دهد)
+            # Convert warp-routing to warp_routing for SDK (SDK may prefer snake_case)
             if "warp-routing" in config_data:
                 warp_routing_value = config_data.pop("warp-routing")
                 if warp_routing_value:  # Only add if not None/empty
                     config_data["warp_routing"] = warp_routing_value
                     logger.debug("Converted warp-routing to warp_routing for SDK")
             
-            # پاک‌سازی فیلدهای خالی یا None (اما ingress را همیشه نگه دار)
+            # Clean empty or None fields (but always keep ingress)
             cleaned_config = {}
             for k, v in config_data.items():
                 if k == "ingress":
@@ -884,7 +884,7 @@ class CloudflareService:
             logger.debug(f"Sending config to SDK with keys: {list(config_data.keys())}")
             logger.debug(f"Config ingress count: {len(config_data.get('ingress', []))}")
             
-            # به‌روزرسانی config با SDK
+            # Update config with SDK
             configuration = await asyncio.to_thread(
 
                 self.sdk_client.zero_trust.tunnels.cloudflared.configurations.update,
@@ -897,10 +897,10 @@ class CloudflareService:
 
             )
             
-            # بررسی موفقیت - ConfigurationUpdateResponse دارای فیلدهای account_id, config, created_at, source, tunnel_id, version است
+            # Check success - ConfigurationUpdateResponse has fields account_id, config, created_at, source, tunnel_id, version
             logger.debug(f"SDK response type: {type(configuration)}")
             
-            # بررسی اینکه response دارای tunnel_id یا config است (نشانه موفقیت)
+            # Check that response has tunnel_id or config (sign of success)
             if hasattr(configuration, 'tunnel_id') and configuration.tunnel_id:
                 logger.info(f"Successfully updated tunnel config using SDK (has tunnel_id: {configuration.tunnel_id})")
                 return True
@@ -909,7 +909,7 @@ class CloudflareService:
                 logger.info(f"Successfully updated tunnel config using SDK (has config)")
                 return True
             
-            # بررسی success flag (اگر وجود دارد)
+            # Check success flag (if exists)
             if hasattr(configuration, 'success'):
                 success_value = configuration.success
                 logger.debug(f"SDK response success: {success_value}")
@@ -917,33 +917,33 @@ class CloudflareService:
                     logger.info(f"Successfully updated tunnel config using SDK (success=True)")
                     return True
             
-            # بررسی result (اگر وجود دارد)
+            # Check result (if exists)
             if hasattr(configuration, 'result'):
                 result = configuration.result
                 logger.debug(f"SDK response has result: {result is not None}")
                 if result is not None:
-                    # اگر result وجود دارد، بررسی کنیم که آیا tunnel_id یا config دارد
+                    # If result exists, check if it has tunnel_id or config
                     if hasattr(result, 'tunnel_id') or hasattr(result, 'config'):
                         logger.info(f"Successfully updated tunnel config using SDK (has valid result)")
                         return True
-                    # یا اگر result یک dict است و tunnel_id یا config دارد
+                    # Or if result is a dict and has tunnel_id or config
                     elif isinstance(result, dict):
                         if result.get('tunnel_id') or result.get('config'):
                             logger.info(f"Successfully updated tunnel config using SDK (result dict has tunnel_id/config)")
                             return True
             
-            # بررسی errors
+            # Check errors
             if hasattr(configuration, 'errors'):
                 errors = configuration.errors
                 if errors:
                     error_msg = str(errors) if errors else "Unknown errors"
                     logger.error(f"SDK returned errors: {error_msg}")
-                    # اگر errors وجود دارد، fallback به REST API
+                    # If errors exist, fallback to REST API
                     raise Exception(f"SDK returned errors: {error_msg}")
             
-            # اگر response وجود دارد اما هیچ نشانه موفقیتی ندارد، بررسی کنیم که آیا حداقل response object معتبر است
+            # If response exists but no success indicator, check if at least response object is valid
             if configuration is not None:
-                # اگر response وجود دارد، احتمالاً موفق بوده (SDK ممکن است فقط object برگرداند)
+                # If response exists, probably successful (SDK may just return object)
                 logger.info(f"SDK returned response object (type: {type(configuration).__name__}), assuming success")
                 return True
             else:
@@ -952,18 +952,18 @@ class CloudflareService:
                 
         except Exception as e:
             logger.exception(f"Error updating tunnel config with SDK: {e}")
-            # Fallback به روش قدیمی در صورت خطا
+            # Fallback to old method on error
             logger.warning("Falling back to REST API method")
             try:
                 url = f"{self.base_url}/accounts/{self.account_id}/cfd_tunnel/{tunnel_id}/configurations"
                 
-                # استفاده از config اصلی که به متد داده شده (نه config_data که تغییر کرده)
-                # و تبدیل warp_routing به warp-routing برای REST API
+                # Use original config passed to method (not config_data which was modified)
+                # and convert warp_routing to warp-routing for REST API
                 rest_config = config.copy() if isinstance(config, dict) else config
                 if isinstance(rest_config, dict) and "config" not in rest_config:
                     rest_config = {"config": rest_config}
                 
-                # اگر warp_routing در config_data بود، باید به warp-routing تبدیل شود
+                # If warp_routing was in config_data, must convert to warp-routing
                 if isinstance(rest_config, dict) and "config" in rest_config:
                     config_inner = rest_config["config"]
                     if isinstance(config_inner, dict) and "warp_routing" in config_inner:
@@ -991,16 +991,16 @@ class CloudflareService:
     
     async def list_tunnels(self) -> List[Dict[str, Any]]:
         """
-        دریافت لیست Tunnel‌ها با استفاده از SDK رسمی Cloudflare
+        Get list of Tunnels using official Cloudflare SDK
         
         Returns:
-            List[Dict]: لیست Tunnel‌ها
+            List[Dict]: List of Tunnels
         """
         try:
-            # استفاده از SDK رسمی Cloudflare
+            # Use official Cloudflare SDK
             logger.debug(f"Fetching tunnels list using Cloudflare SDK for account {self.account_id}")
             
-            # دریافت لیست Tunnel‌ها با SDK
+            # Get list of Tunnels with SDK
             page = await asyncio.to_thread(
 
                 self.sdk_client.zero_trust.tunnels.list,
@@ -1011,21 +1011,21 @@ class CloudflareService:
 
             )
             
-            # تبدیل نتیجه به لیست دیکشنری
+            # Convert result to list of dictionaries
             tunnels_list = []
             
-            # بررسی موفقیت آمیز بودن درخواست
+            # Check if request was successful
             if hasattr(page, 'result') and page.result:
                 for tunnel in page.result:
-                    # تبدیل tunnel object به dictionary با استفاده از model_dump اگر Pydantic باشد
+                    # Convert tunnel object to dictionary using model_dump if Pydantic
                     try:
-                        # اگر tunnel یک Pydantic model باشد، از model_dump استفاده می‌کنیم
+                        # If tunnel is a Pydantic model, use model_dump
                         if hasattr(tunnel, 'model_dump'):
                             tunnel_dict = tunnel.model_dump(mode='json')
                         elif hasattr(tunnel, 'dict'):
                             tunnel_dict = tunnel.dict()
                         else:
-                            # تبدیل دستی به dictionary
+                            # Manual conversion to dictionary
                             tunnel_dict = self._tunnel_to_dict(tunnel)
                     except Exception as conv_error:
                         logger.warning(f"Error converting tunnel to dict, using manual conversion: {conv_error}")
@@ -1038,7 +1038,7 @@ class CloudflareService:
             
         except Exception as e:
             logger.exception(f"Error fetching tunnels list with SDK: {e}")
-            # Fallback به روش قدیمی در صورت خطا
+            # Fallback to old method on error
             logger.warning("Falling back to REST API method")
             try:
                 url = f"{self.base_url}/accounts/{self.account_id}/cfd_tunnel"
@@ -1055,13 +1055,13 @@ class CloudflareService:
     
     def _tunnel_to_dict(self, tunnel) -> Dict[str, Any]:
         """
-        تبدیل tunnel object به dictionary (fallback method)
+        Convert tunnel object to dictionary (fallback method)
         
         Args:
-            tunnel: Tunnel object از SDK
+            tunnel: Tunnel object from SDK
             
         Returns:
-            Dict: Tunnel به صورت dictionary
+            Dict: Tunnel as dictionary
         """
         def format_datetime(dt):
             """Format datetime to ISO string"""
@@ -1107,16 +1107,16 @@ class CloudflareService:
     
     async def get_tunnel(self, tunnel_id: str) -> Optional[Dict[str, Any]]:
         """
-        دریافت اطلاعات یک Tunnel با استفاده از SDK رسمی Cloudflare
+        Get information about a Tunnel using official Cloudflare SDK
         
         Args:
-            tunnel_id: ID Tunnel
-        
+            tunnel_id: Tunnel ID
+            
         Returns:
-            Dict یا None
+            Dict or None
         """
         try:
-            # استفاده از SDK رسمی Cloudflare
+            # Use official Cloudflare SDK
             logger.debug(f"Fetching tunnel using Cloudflare SDK for tunnel {tunnel_id}")
             
             cloudflare_tunnel = await asyncio.to_thread(
@@ -1133,15 +1133,15 @@ class CloudflareService:
             
             )
             
-            # تبدیل tunnel object به dictionary
+            # Convert tunnel object to dictionary
             try:
-                # اگر tunnel یک Pydantic model باشد، از model_dump استفاده می‌کنیم
+                # If tunnel is a Pydantic model, use model_dump
                 if hasattr(cloudflare_tunnel, 'model_dump'):
                     tunnel_dict = cloudflare_tunnel.model_dump(mode='json')
                 elif hasattr(cloudflare_tunnel, 'dict'):
                     tunnel_dict = cloudflare_tunnel.dict()
                 elif hasattr(cloudflare_tunnel, 'result'):
-                    # اگر response object باشد
+                    # If response object
                     result = cloudflare_tunnel.result
                     if hasattr(result, 'model_dump'):
                         tunnel_dict = result.model_dump(mode='json')
@@ -1162,7 +1162,7 @@ class CloudflareService:
                 
         except Exception as e:
             logger.exception(f"Error fetching tunnel with SDK: {e}")
-            # Fallback به روش قدیمی در صورت خطا
+            # Fallback to old method on error
             logger.warning("Falling back to REST API method")
             try:
                 url = f"{self.base_url}/accounts/{self.account_id}/cfd_tunnel/{tunnel_id}"
@@ -1177,18 +1177,100 @@ class CloudflareService:
                 logger.exception(f"Error fetching tunnel with REST API: {req_error}")
                 return None
     
-    async def get_tunnel_config(self, tunnel_id: str) -> Optional[Dict[str, Any]]:
+    async def create_tunnel(self, name: str, config_src: str = "cloudflare") -> Optional[Dict[str, Any]]:
         """
-        دریافت Config Tunnel با استفاده از SDK رسمی Cloudflare
+        Create a new Tunnel using REST API
         
         Args:
-            tunnel_id: ID Tunnel
+            name: Tunnel name
+            config_src: Config source ("cloudflare" or "local")
         
         Returns:
-            Dict با config یا None
+            Dict with tunnel_id and token or None on error
         """
         try:
-            # استفاده از SDK رسمی Cloudflare
+            url = f"{self.base_url}/accounts/{self.account_id}/cfd_tunnel"
+            body = {
+                "name": name,
+                "config_src": config_src
+            }
+            
+            response = await self.http_client.post(url, headers=self.headers, json=body)
+            response.raise_for_status()
+            data = response.json()
+            
+            if data.get("success"):
+                result = data.get("result", {})
+                return {
+                    "id": result.get("id"),
+                    "token": result.get("token"),
+                    "name": result.get("name"),
+                    "created_at": result.get("created_at")
+                }
+            
+            # Handle duplicate name error (code 1013)
+            errors = data.get("errors", [])
+            if errors and errors[0].get("code") == 1013:
+                # Try with timestamp suffix
+                import time
+                new_name = f"{name}-{int(time.time())}"
+                body["name"] = new_name
+                retry_response = await self.http_client.post(url, headers=self.headers, json=body)
+                retry_response.raise_for_status()
+                retry_data = retry_response.json()
+                if retry_data.get("success"):
+                    result = retry_data.get("result", {})
+                    return {
+                        "id": result.get("id"),
+                        "token": result.get("token"),
+                        "name": result.get("name"),
+                        "created_at": result.get("created_at")
+                    }
+            
+            logger.error(f"Failed to create tunnel: {data}")
+            return None
+            
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 409:
+                # Conflict - name already exists, try with timestamp
+                import time
+                new_name = f"{name}-{int(time.time())}"
+                body = {
+                    "name": new_name,
+                    "config_src": config_src
+                }
+                try:
+                    retry_response = await self.http_client.post(url, headers=self.headers, json=body)
+                    retry_response.raise_for_status()
+                    retry_data = retry_response.json()
+                    if retry_data.get("success"):
+                        result = retry_data.get("result", {})
+                        return {
+                            "id": result.get("id"),
+                            "token": result.get("token"),
+                            "name": result.get("name"),
+                            "created_at": result.get("created_at")
+                        }
+                except Exception as retry_error:
+                    logger.exception(f"Error retrying tunnel creation: {retry_error}")
+            logger.exception(f"HTTP error creating tunnel: {e}")
+            return None
+        except Exception as e:
+            logger.exception(f"Error creating tunnel: {e}")
+            return None
+
+    async def get_tunnel_config(self, tunnel_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get Tunnel Config using official Cloudflare SDK
+        
+        Args:
+            tunnel_id: Tunnel ID
+        
+        Returns:
+            Dict with config or None
+        """
+        try:
+            # Use official Cloudflare SDK
             logger.debug(f"Fetching tunnel config using Cloudflare SDK for tunnel {tunnel_id}")
             
             configuration = await asyncio.to_thread(
@@ -1205,15 +1287,15 @@ class CloudflareService:
             
             )
             
-            # تبدیل configuration object به dictionary
+            # Convert configuration object to dictionary
             try:
-                # اگر configuration یک Pydantic model باشد، از model_dump استفاده می‌کنیم
+                # If configuration is a Pydantic model, use model_dump
                 if hasattr(configuration, 'model_dump'):
                     config_dict = configuration.model_dump(mode='json')
                 elif hasattr(configuration, 'dict'):
                     config_dict = configuration.dict()
                 elif hasattr(configuration, 'result'):
-                    # اگر response object باشد
+                    # If response object
                     result = configuration.result
                     if hasattr(result, 'model_dump'):
                         config_dict = result.model_dump(mode='json')
@@ -1234,7 +1316,7 @@ class CloudflareService:
                 
         except Exception as e:
             logger.exception(f"Error fetching tunnel config with SDK: {e}")
-            # Fallback به روش قدیمی در صورت خطا
+            # Fallback to old method on error
             logger.warning("Falling back to REST API method")
             try:
                 url = f"{self.base_url}/accounts/{self.account_id}/cfd_tunnel/{tunnel_id}/configurations"
@@ -1251,13 +1333,13 @@ class CloudflareService:
     
     def _config_to_dict(self, config_obj) -> Dict[str, Any]:
         """
-        تبدیل config object به dictionary (fallback method)
+        Convert config object to dictionary (fallback method)
         
         Args:
-            config_obj: Config object از SDK
+            config_obj: Config object from SDK
             
         Returns:
-            Dict: Config به صورت dictionary
+            Dict: Config as dictionary
         """
         def format_datetime(dt):
             """Format datetime to ISO string"""
@@ -1395,16 +1477,16 @@ class CloudflareService:
     
     async def get_zone_id(self) -> Optional[str]:
         """
-        دریافت Zone ID برای domain با استفاده از SDK رسمی Cloudflare
+        Get Zone ID for domain using official Cloudflare SDK
         
         Returns:
-            Zone ID یا None
+            Zone ID or None
         """
         try:
-            # استفاده از SDK رسمی Cloudflare
+            # Use official Cloudflare SDK
             logger.debug(f"Getting Zone ID for domain: {self.domain} using Cloudflare SDK")
             
-            # دریافت لیست zones
+            # Get list of zones
             zones_page = await asyncio.to_thread(
 
                 self.sdk_client.zones.list,
@@ -1413,10 +1495,10 @@ class CloudflareService:
 
             )
             
-            # بررسی نتیجه
+            # Check result
             if hasattr(zones_page, 'result') and zones_page.result:
                 for zone in zones_page.result:
-                    # تبدیل zone object به dict
+                    # Convert zone object to dict
                     if hasattr(zone, 'model_dump'):
                         zone_dict = zone.model_dump(mode='json')
                     elif hasattr(zone, 'dict'):
@@ -1428,7 +1510,7 @@ class CloudflareService:
                         }
                     
                     zone_name = zone_dict.get("name", "")
-                    # بررسی تطابق نام domain
+                    # Check domain name match
                     if zone_name == self.domain:
                         zone_id = zone_dict.get("id")
                         logger.debug(f"Zone ID found using SDK: {zone_id}")
@@ -1439,7 +1521,7 @@ class CloudflareService:
             
         except Exception as e:
             logger.exception(f"Error getting Zone ID with SDK: {e}")
-            # Fallback به روش قدیمی در صورت خطا
+            # Fallback to old method on error
             logger.warning("Falling back to REST API method")
             try:
                 url = f"{self.base_url}/zones"
@@ -1470,18 +1552,18 @@ class CloudflareService:
     
     async def create_dns_record(self, hostname: str, tunnel_id: str, zone_id: Optional[str] = None, route_type: str = "HTTP", proxied: Optional[bool] = None, comment: Optional[str] = None) -> bool:
         """
-        ایجاد DNS record جدید (CNAME) برای hostname با استفاده از SDK رسمی Cloudflare
+        Create new DNS record (CNAME) for hostname using official Cloudflare SDK
         
         Args:
-            hostname: Hostname (مثلاً app.example.com)
+            hostname: Hostname (e.g. app.example.com)
             tunnel_id: Tunnel ID
-            zone_id: Zone ID (اگر None باشد، از get_zone_id استفاده می‌شود)
+            zone_id: Zone ID (if None, uses get_zone_id)
             route_type: Type of route (HTTP, HTTPS, TCP, SSH) - determines if proxied
-            proxied: Whether record should be proxied (اگر None باشد، بر اساس route_type تعیین می‌شود)
+            proxied: Whether record should be proxied (if None, determined based on route_type)
             comment: Comment for DNS record
         
         Returns:
-            bool: موفقیت یا عدم موفقیت
+            bool: Success or failure
         """
         logger.info(f"Creating DNS record for hostname: {hostname}, tunnel_id: {tunnel_id}, route_type: {route_type}")
         
@@ -1516,7 +1598,7 @@ class CloudflareService:
             comment = f"Cloudflare Tunnel: {tunnel_id} (Type: {route_type})"
         
         try:
-            # استفاده از SDK رسمی Cloudflare
+            # Use official Cloudflare SDK
             logger.debug(f"Creating DNS record using Cloudflare SDK: name={name}, content={content}, proxied={proxied}")
             
             record_response = await asyncio.to_thread(
@@ -1538,7 +1620,7 @@ class CloudflareService:
             
             )
             
-            # بررسی موفقیت
+            # Check success
             if hasattr(record_response, 'result') and record_response.result:
                 result = record_response.result
                 record_id = getattr(result, 'id', None) if hasattr(result, 'id') else None
@@ -1551,7 +1633,7 @@ class CloudflareService:
             
         except Exception as e:
             logger.exception(f"Error creating DNS record with SDK: {e}")
-            # Fallback به روش قدیمی در صورت خطا
+            # Fallback to old method on error
             logger.warning("Falling back to REST API method")
             try:
                 dns_body = {
@@ -1579,14 +1661,14 @@ class CloudflareService:
     
     async def find_dns_record(self, hostname: str, zone_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
-        پیدا کردن DNS record برای hostname با استفاده از SDK رسمی Cloudflare
+        Find DNS record for hostname using official Cloudflare SDK
         
         Args:
-            hostname: Hostname (مثلاً app.example.com)
-            zone_id: Zone ID (اگر None باشد، از get_zone_id استفاده می‌شود)
+            hostname: Hostname (e.g. app.example.com)
+            zone_id: Zone ID (if None, uses get_zone_id)
         
         Returns:
-            Dict با record info یا None
+            Dict with record info or None
         """
         if not zone_id:
             zone_id = await self.get_zone_id()
@@ -1599,7 +1681,7 @@ class CloudflareService:
             return None
         
         try:
-            # جستجو با subdomain name
+            # Search with subdomain name
             records_page = await asyncio.to_thread(
 
                 self.sdk_client.dns.records.list,
@@ -1615,14 +1697,14 @@ class CloudflareService:
             result = self._find_dns_record_in_results(records_page, name, hostname)
             if result:
                 record_id, _ = result
-                # پیدا کردن record کامل برای return
+                # Find complete record for return
                 for record in records_page.result:
                     record_dict = self._record_to_dict(record)
                     if record_dict.get("id") == record_id:
                         logger.debug(f"Found DNS record with subdomain search: {record_dict.get('name')}")
                         return record_dict
             
-            # اگر با subdomain پیدا نشد، با hostname کامل جستجو کنیم
+            # If not found with subdomain, search with full hostname
             logger.debug(f"Record not found with subdomain '{name}', trying with full hostname '{hostname}'")
             records_page_full = await asyncio.to_thread(
 
@@ -1639,7 +1721,7 @@ class CloudflareService:
             result = self._find_dns_record_in_results(records_page_full, name, hostname)
             if result:
                 record_id, _ = result
-                # پیدا کردن record کامل برای return
+                # Find complete record for return
                 for record in records_page_full.result:
                     record_dict = self._record_to_dict(record)
                     if record_dict.get("id") == record_id:
@@ -1653,18 +1735,18 @@ class CloudflareService:
     
     async def update_dns_record(self, hostname: str, tunnel_id: str, zone_id: Optional[str] = None, route_type: str = "HTTP", preserve_proxied: bool = False, record_id: Optional[str] = None) -> bool:
         """
-        به‌روزرسانی DNS record موجود (CNAME) برای hostname با استفاده از SDK رسمی Cloudflare
+        Update existing DNS record (CNAME) for hostname using official Cloudflare SDK
         
         Args:
-            hostname: Hostname (مثلاً app.example.com)
+            hostname: Hostname (e.g. app.example.com)
             tunnel_id: Tunnel ID
-            zone_id: Zone ID (اگر None باشد، از get_zone_id استفاده می‌شود)
+            zone_id: Zone ID (if None, uses get_zone_id)
             route_type: Type of route (HTTP, HTTPS, TCP, SSH) - determines if proxied
             preserve_proxied: Whether to preserve existing proxied status
-            record_id: DNS record ID (اگر None باشد، record را پیدا می‌کند)
+            record_id: DNS record ID (if None, finds the record)
         
         Returns:
-            bool: موفقیت یا عدم موفقیت
+            bool: Success or failure
         """
         logger.info(f"Updating DNS record for hostname: {hostname}, tunnel_id: {tunnel_id}, route_type: {route_type}, preserve_proxied: {preserve_proxied}")
         
@@ -1693,7 +1775,7 @@ class CloudflareService:
         # Find existing record if record_id not provided
         if not record_id:
             try:
-                # استفاده از SDK برای پیدا کردن record - جستجو با subdomain name
+                # Use SDK to find record - search with subdomain name
                 records_page = await asyncio.to_thread(
 
                     self.sdk_client.dns.records.list,
@@ -1706,14 +1788,14 @@ class CloudflareService:
 
                 )
                 
-                # جستجو با subdomain name
+                # Search with subdomain name
                 result = self._find_dns_record_in_results(records_page, name, hostname)
                 if result:
                     record_id, existing_proxied = result
                     logger.info(f"Found existing DNS record: id={record_id}, proxied={existing_proxied}")
                     found_record = True
                 
-                # اگر با subdomain پیدا نشد، با hostname کامل جستجو کنیم
+                # If not found with subdomain, search with full hostname
                 if not found_record:
                     logger.debug(f"Record not found with subdomain '{name}', trying with full hostname '{hostname}'")
                     records_page_full = await asyncio.to_thread(
@@ -1738,7 +1820,7 @@ class CloudflareService:
                     
             except Exception as e:
                 logger.warning(f"Error finding record with SDK, using REST API: {e}")
-                # Fallback به REST API
+                # Fallback to REST API
                 url = f"{self.base_url}/zones/{zone_id}/dns_records"
                 existing_record, _ = await find_existing_dns_records(self.http_client, url, self.headers, name, hostname)
                 if existing_record:
@@ -1768,7 +1850,7 @@ class CloudflareService:
         comment = f"Cloudflare Tunnel: {tunnel_id} (Type: {route_type})"
         
         try:
-            # استفاده از SDK رسمی Cloudflare
+            # Use official Cloudflare SDK
             logger.debug(f"Updating DNS record using Cloudflare SDK: id={record_id}, name={name}, content={content}, proxied={proxied}")
             
             record_response = await asyncio.to_thread(
@@ -1791,7 +1873,7 @@ class CloudflareService:
             
             )
             
-            # بررسی موفقیت
+            # Check success
             if hasattr(record_response, 'result') and record_response.result:
                 result = record_response.result
                 updated_id = getattr(result, 'id', None) if hasattr(result, 'id') else None
@@ -1804,7 +1886,7 @@ class CloudflareService:
             
         except Exception as e:
             logger.exception(f"Error updating DNS record with SDK: {e}")
-            # Fallback به روش قدیمی در صورت خطا
+            # Fallback to old method on error
             logger.warning("Falling back to REST API method")
             try:
                 dns_body = {
@@ -1833,15 +1915,15 @@ class CloudflareService:
     
     async def delete_dns_record(self, hostname: str, zone_id: Optional[str] = None, tunnel_id: Optional[str] = None) -> bool:
         """
-        حذف DNS record برای hostname با استفاده از SDK رسمی Cloudflare
+        Delete DNS record for hostname using official Cloudflare SDK
         
         Args:
-            hostname: Hostname (مثلاً app.example.com)
-            zone_id: Zone ID (اگر None باشد، از get_zone_id استفاده می‌شود)
-            tunnel_id: Tunnel ID برای بررسی content (اختیاری)
+            hostname: Hostname (e.g. app.example.com)
+            zone_id: Zone ID (if None, uses get_zone_id)
+            tunnel_id: Tunnel ID for content verification (optional)
         
         Returns:
-            bool: موفقیت یا عدم موفقیت
+            bool: Success or failure
         """
         logger.info(f"Deleting DNS record for hostname: {hostname}")
         
@@ -1867,10 +1949,10 @@ class CloudflareService:
         record_id: Optional[str] = None
         
         try:
-            # استفاده از SDK برای پیدا کردن DNS record
+            # Use SDK to find DNS record
             logger.debug(f"Searching for DNS record using SDK: name={name}, hostname={hostname}")
             
-            # جستجو با subdomain name
+            # Search with subdomain name
             records_page = await asyncio.to_thread(
 
                 self.sdk_client.dns.records.list,
@@ -1883,7 +1965,7 @@ class CloudflareService:
 
             )
             
-            # بررسی records با استفاده از helper method
+            # Check records using helper method
             if hasattr(records_page, 'result') and records_page.result:
                 for record in records_page.result:
                     record_dict = self._record_to_dict(record)
@@ -1891,7 +1973,7 @@ class CloudflareService:
                     record_type = record_dict.get("type", "")
                     record_content = record_dict.get("content", "")
                     
-                    # بررسی تطابق نام - case-insensitive
+                    # Check name match - case-insensitive
                     record_name_lower = record_name.lower()
                     name_lower = name.lower()
                     hostname_lower = hostname.lower()
@@ -1903,9 +1985,9 @@ class CloudflareService:
                         record_name_lower == f"{name_lower}.{domain_lower}"
                     )
                     
-                    # بررسی نوع CNAME
+                    # Check CNAME type
                     if name_matches and record_type == "CNAME":
-                        # اگر tunnel_id ارائه شده، بررسی content
+                        # If tunnel_id provided, check content
                         if tunnel_id and record_content:
                             expected_content = f"{tunnel_id}.cfargotunnel.com"
                             if record_content == expected_content:
@@ -1919,7 +2001,7 @@ class CloudflareService:
                             logger.info(f"Found CNAME record with matching name: id={record_id}, name={record_name}")
                             break
             
-            # اگر با subdomain پیدا نشد، با hostname کامل جستجو کنیم
+            # If not found with subdomain, search with full hostname
             if not record_to_delete:
                 logger.info(f"No results with subdomain '{name}', trying full hostname '{hostname}'")
                 records_page_full = await asyncio.to_thread(
@@ -1943,7 +2025,7 @@ class CloudflareService:
                         record_type = record_dict.get("type", "")
                         record_content = record_dict.get("content", "")
                         
-                        # بررسی تطابق نام - case-insensitive
+                        # Check name match - case-insensitive
                         record_name_lower = record_name.lower()
                         name_lower = name.lower()
                         hostname_lower = hostname.lower()
@@ -1953,9 +2035,9 @@ class CloudflareService:
                             record_name_lower == name_lower
                         )
                         
-                        # بررسی نوع CNAME
+                        # Check CNAME type
                         if name_matches and record_type == "CNAME":
-                            # اگر tunnel_id ارائه شده، بررسی content
+                            # If tunnel_id provided, check content
                             if tunnel_id and record_content:
                                 expected_content = f"{tunnel_id}.cfargotunnel.com"
                                 if record_content == expected_content:
@@ -1969,7 +2051,7 @@ class CloudflareService:
                                 logger.info(f"Found CNAME record with full hostname: id={record_id}, name={record_name}")
                                 break
             
-            # اگر record پیدا نشد، با روش قدیمی جستجو کن
+            # If record not found, search with old method
             if not record_to_delete:
                 logger.debug("Record not found with SDK, trying alternative search")
                 url = f"{self.base_url}/zones/{zone_id}/dns_records"
@@ -2008,7 +2090,7 @@ class CloudflareService:
             
             )
             
-            # بررسی موفقیت
+            # Check success
             if hasattr(delete_result, 'result') and delete_result.result:
                 result_id = getattr(delete_result.result, 'id', None) if hasattr(delete_result.result, 'id') else None
                 if result_id == record_id or result_id:
@@ -2020,7 +2102,7 @@ class CloudflareService:
             
         except Exception as e:
             logger.exception(f"Error deleting DNS record with SDK: {e}")
-            # Fallback به روش قدیمی در صورت خطا
+            # Fallback to old method on error
             logger.warning("Falling back to REST API method")
             try:
                 # Find DNS record using helper function

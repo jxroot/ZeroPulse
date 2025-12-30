@@ -96,7 +96,7 @@ async def get_categories(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    دریافت لیست دسته‌بندی‌های ماژول
+    Get list of module categories
     """
     try:
         categories = await db.get_module_categories(active_only=active_only)
@@ -115,7 +115,7 @@ async def get_category(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    دریافت یک دسته‌بندی خاص
+    Get a specific category
     """
     category = await db.get_module_category(category_id)
     if not category:
@@ -132,7 +132,7 @@ async def create_category(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    ایجاد دسته‌بندی جدید
+    Create new category
     """
     try:
         category_id = str(uuid.uuid4())
@@ -173,7 +173,7 @@ async def update_category(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    به‌روزرسانی دسته‌بندی
+    Update category
     """
     await get_current_user_id(current_user)
     existing = await db.get_module_category(category_id)
@@ -219,7 +219,7 @@ async def set_default_category(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    تنظیم یک category به عنوان پیش‌فرض
+    Set a category as default
     """
     await get_current_user_id(current_user)
     existing = await db.get_module_category(category_id)
@@ -262,7 +262,7 @@ async def unset_default_category(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    حذف category از حالت پیش‌فرض
+    Remove category from default state
     """
     await get_current_user_id(current_user)
     existing = await db.get_module_category(category_id)
@@ -295,7 +295,7 @@ async def delete_category(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    حذف دسته‌بندی
+    Delete category
     """
     await get_current_user_id(current_user)
     existing = await db.get_module_category(category_id)
@@ -328,7 +328,7 @@ async def get_sections(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    دریافت لیست بخش‌های ماژول
+    Get list of module sections
     """
     try:
         sections = await db.get_module_sections(category_id=category_id, active_only=active_only)
@@ -347,7 +347,7 @@ async def get_section(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    دریافت یک بخش خاص
+    Get a specific section
     """
     section = await db.get_module_section(section_id)
     if not section:
@@ -364,7 +364,7 @@ async def create_section(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    ایجاد بخش جدید
+    Create new section
     """
     try:
         await get_current_user_id(current_user)
@@ -406,7 +406,7 @@ async def update_section(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    به‌روزرسانی بخش
+    Update section
     """
     await get_current_user_id(current_user)
     existing = await db.get_module_section(section_id)
@@ -452,7 +452,7 @@ async def delete_section(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    حذف بخش
+    Delete section
     """
     await get_current_user_id(current_user)
     existing = await db.get_module_section(section_id)
@@ -485,7 +485,7 @@ async def get_items(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    دریافت لیست آیتم‌های ماژول
+    Get list of module items
     """
     try:
         items = await db.get_module_items(section_id=section_id, active_only=active_only)
@@ -504,7 +504,7 @@ async def get_item(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    دریافت یک آیتم خاص
+    Get a specific item
     """
     item = await db.get_module_item(item_id)
     if not item:
@@ -521,7 +521,7 @@ async def create_item(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    ایجاد آیتم جدید
+    Create new item
     """
     try:
         # Get current user ID
@@ -568,7 +568,7 @@ async def update_item(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    به‌روزرسانی آیتم
+    Update item
     """
     await get_current_user_id(current_user)
     existing = await db.get_module_item(item_id)
@@ -622,7 +622,7 @@ async def delete_item(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    حذف آیتم
+    Delete item
     """
     await get_current_user_id(current_user)
     existing = await db.get_module_item(item_id)
@@ -653,7 +653,7 @@ async def get_full_structure(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    دریافت ساختار کامل ماژول‌ها (دسته‌بندی + بخش + آیتم)
+    Get complete module structure (category + section + item)
     """
     try:
         structure = await db.get_full_module_structure()
@@ -676,7 +676,7 @@ async def import_structure(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Import کردن ساختار کامل ماژول‌ها
+    Import complete module structure
     """
     try:
         # TODO: Implement bulk import
@@ -693,7 +693,7 @@ async def export_structure(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Export کردن ساختار کامل ماژول‌ها
+    Export complete module structure
     """
     try:
         structure = await db.get_full_module_structure()

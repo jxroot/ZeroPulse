@@ -24,7 +24,7 @@ def cleanup_dead_ttyd_processes():
 @router.get("/check-ttyd/{tunnel_id}")
 async def check_ttyd(tunnel_id: str, current_user: dict = Depends(get_current_user)):
     """
-    بررسی وضعیت ttyd برای یک tunnel
+    Check ttyd status for a tunnel
     """
     try:
         # Check if ttyd is installed
@@ -219,7 +219,7 @@ async def check_ttyd(tunnel_id: str, current_user: dict = Depends(get_current_us
 @router.post("/start-ttyd/{tunnel_id}")
 async def start_ttyd(tunnel_id: str, ttyd_data: dict, current_user: dict = Depends(get_current_user)):
     """
-    راه‌اندازی ttyd برای یک tunnel
+    Start ttyd for a tunnel
     """
     try:
         # Get parameters
@@ -413,7 +413,7 @@ async def start_ttyd(tunnel_id: str, ttyd_data: dict, current_user: dict = Depen
 @router.post("/stop-ttyd/{tunnel_id}")
 async def stop_ttyd(tunnel_id: str, current_user: dict = Depends(get_current_user)):
     """
-    متوقف کردن ttyd برای یک tunnel
+    Stop ttyd for a tunnel
     """
     try:
         ttyd_info = process_manager.get_ttyd(tunnel_id)

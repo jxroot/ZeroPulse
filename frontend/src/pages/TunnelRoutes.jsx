@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { loadTunnels } from '../store/slices/tunnelsSlice'
 import { setActiveTab } from '../store/slices/routesSlice'
@@ -21,6 +21,9 @@ const TunnelRoutes = () => {
   
   // Track which tunnels are expanded (dropdowns opened)
   const [expandedTunnels, setExpandedTunnels] = useState(new Set())
+  
+  // Track which groups are expanded
+  const [expandedGroups, setExpandedGroups] = useState(new Set())
   
   // Track active status for each tunnel (to show Active badge in header)
   const [tunnelActiveStatus, setTunnelActiveStatus] = useState({})
@@ -249,6 +252,42 @@ const TunnelRoutes = () => {
     })
   }
 
+  // Group tunnels by group_id
+  const groupedTunnels = useMemo(() => {
+    const groups = {}
+    const ungrouped = []
+
+    tunnels.tunnels.forEach(tunnel => {
+      if (tunnel.group_id && tunnel.group_name) {
+        if (!groups[tunnel.group_id]) {
+          groups[tunnel.group_id] = {
+            id: tunnel.group_id,
+            name: tunnel.group_name,
+            color: tunnel.group_color || '#667eea',
+            tunnels: []
+          }
+        }
+        groups[tunnel.group_id].tunnels.push(tunnel)
+      } else {
+        ungrouped.push(tunnel)
+      }
+    })
+
+    return { groups, ungrouped }
+  }, [tunnels.tunnels])
+
+  const toggleGroup = (groupId) => {
+    setExpandedGroups(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(groupId)) {
+        newSet.delete(groupId)
+      } else {
+        newSet.add(groupId)
+      }
+      return newSet
+    })
+  }
+
   // Get proxies only for expanded tunnels
   const allProxiesByTunnel = routeProxies.allProxies || {}
   const expandedProxiesByTunnel = {}
@@ -331,79 +370,291 @@ const TunnelRoutes = () => {
               <p style={{ color: 'var(--text-secondary)' }}>No tunnels found.</p>
             </div>
           ) : (
-            <div className="space-y-3">
-              {tunnels.tunnels.map((tunnel) => {
-                const isExpanded = expandedTunnels.has(tunnel.id)
-                const proxies = expandedProxiesByTunnel[tunnel.id]
-                const isLoading = isExpanded && proxies === undefined
-                
+            <div className="space-y-4">
+              {/* Grouped Tunnels */}
+              {Object.values(groupedTunnels.groups).map((group) => {
+                const isGroupExpanded = expandedGroups.has(group.id)
                 return (
-                  <div key={tunnel.id} className="space-y-3">
-                    {/* Tunnel Header with Dropdown */}
-                    <div 
-                      className="bg-gradient-to-r from-purple-600/15 to-blue-600/15 border border-purple-500/30 rounded-lg p-3 cursor-pointer hover:border-purple-500/50 transition-colors"
-                      onClick={() => toggleTunnelDropdown(tunnel.id)}
+                  <div key={group.id} className="card overflow-hidden">
+                    <div
+                      className="px-4 py-3 cursor-pointer flex items-center justify-between border-b transition-colors"
+                      style={{
+                        backgroundColor: 'var(--bg-quaternary)',
+                        borderBottomColor: 'var(--border-color)'
+                      }}
+                      onClick={() => toggleGroup(group.id)}
                     >
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-gradient-to-br from-purple-600 to-blue-500 rounded-lg flex items-center justify-center text-white">
-                          <i className="fas fa-server"></i>
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <div className="text-xs font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>Tunnel</div>
-                            {hasActiveProxies(tunnel.id) && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 border rounded-full text-xs font-semibold" style={{
-                                backgroundColor: isLightMode ? 'rgba(40, 167, 69, 0.15)' : 'rgba(40, 167, 69, 0.2)',
-                                borderColor: isLightMode ? 'rgba(40, 167, 69, 0.25)' : 'rgba(40, 167, 69, 0.3)',
-                                color: 'var(--success)'
-                              }}>
-                                <span className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: 'var(--success)' }}></span>
-                                Active
-                              </span>
-                            )}
-                          </div>
-                          <div className="font-mono text-sm font-semibold" style={{ color: 'var(--accent-primary)' }}>
-                            {tunnel?.name || tunnel?.id || tunnel.id}
-                            {tunnel?.status && (
-                              <span className="ml-2 text-xs" style={{
-                                color: tunnel.status === 'healthy' ? 'var(--success)' : 'var(--text-secondary)'
-                              }}>
-                                ({tunnel.status})
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          {isExpanded && proxies && proxies.length > 0 && (
-                            <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                              {proxies.length} {proxies.length === 1 ? 'proxy' : 'proxies'}
-                            </div>
-                          )}
-                          <i className={`fas fa-chevron-${isExpanded ? 'up' : 'down'} transition-transform`} style={{ color: 'var(--text-secondary)' }}></i>
-                        </div>
+                        <i className={`fas fa-chevron-${isGroupExpanded ? 'down' : 'right'} text-sm`} style={{ color: 'var(--text-secondary)' }}></i>
+                        <div
+                          className="w-4 h-4 rounded"
+                          style={{ backgroundColor: group.color }}
+                        />
+                        <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                          {group.name}
+                        </span>
+                        <span className="text-xs px-2 py-1 rounded" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>
+                          {group.tunnels.length} {group.tunnels.length === 1 ? 'tunnel' : 'tunnels'}
+                        </span>
                       </div>
                     </div>
-                    
-                    {/* Route Proxies for this tunnel - shown when expanded */}
-                    {isExpanded && (
-                      <div className="ml-4 pl-4 border-l-2 border-purple-500/30">
-                        {isLoading ? (
-                          <div className="flex items-center justify-center py-8">
-                            <LoadingSpinner message="Loading route proxies..." />
-                          </div>
-                        ) : proxies && proxies.length === 0 ? (
-                          <div className="text-center py-8" style={{ color: 'var(--text-secondary)' }}>
-                            <i className="fas fa-network-wired text-2xl opacity-30 mb-2 block" style={{ color: 'var(--text-tertiary)' }}></i>
-                            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>No TCP routes found. Add a TCP route (e.g., tcp://localhost:5900) to create a proxy.</p>
-                          </div>
-                        ) : proxies && proxies.length > 0 ? (
-                          <RouteProxyList tunnelId={tunnel.id} proxies={proxies} />
-                        ) : null}
+                    {isGroupExpanded && (
+                      <div className="p-4 space-y-3">
+                        {group.tunnels.map((tunnel) => {
+                          const isExpanded = expandedTunnels.has(tunnel.id)
+                          const proxies = expandedProxiesByTunnel[tunnel.id]
+                          const isLoading = isExpanded && proxies === undefined
+                          
+                          return (
+                            <div key={tunnel.id} className="space-y-3">
+                              {/* Tunnel Header with Dropdown */}
+                              <div 
+                                className="bg-gradient-to-r from-purple-600/15 to-blue-600/15 border border-purple-500/30 rounded-lg p-3 cursor-pointer hover:border-purple-500/50 transition-colors"
+                                onClick={() => toggleTunnelDropdown(tunnel.id)}
+                              >
+                                <div className="flex items-center gap-3">
+                                  <div className="w-10 h-10 bg-gradient-to-br from-purple-600 to-blue-500 rounded-lg flex items-center justify-center text-white">
+                                    <i className="fas fa-server"></i>
+                                  </div>
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-2">
+                                      <div className="text-xs font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>Tunnel</div>
+                                      {hasActiveProxies(tunnel.id) && (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 border rounded-full text-xs font-semibold" style={{
+                                          backgroundColor: isLightMode ? 'rgba(40, 167, 69, 0.15)' : 'rgba(40, 167, 69, 0.2)',
+                                          borderColor: isLightMode ? 'rgba(40, 167, 69, 0.25)' : 'rgba(40, 167, 69, 0.3)',
+                                          color: 'var(--success)'
+                                        }}>
+                                          <span className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: 'var(--success)' }}></span>
+                                          Active
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="font-mono text-sm font-semibold" style={{ color: 'var(--accent-primary)' }}>
+                                      {tunnel?.name || tunnel?.id || tunnel.id}
+                                      {tunnel?.status && (
+                                        <span className="ml-2 text-xs" style={{
+                                          color: tunnel.status === 'healthy' ? 'var(--success)' : 'var(--text-secondary)'
+                                        }}>
+                                          ({tunnel.status})
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-3">
+                                    {isExpanded && proxies && proxies.length > 0 && (
+                                      <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                                        {proxies.length} {proxies.length === 1 ? 'proxy' : 'proxies'}
+                                      </div>
+                                    )}
+                                    <i className={`fas fa-chevron-${isExpanded ? 'up' : 'down'} transition-transform`} style={{ color: 'var(--text-secondary)' }}></i>
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              {/* Route Proxies for this tunnel - shown when expanded */}
+                              {isExpanded && (
+                                <div className="ml-4 pl-4 border-l-2 border-purple-500/30">
+                                  {isLoading ? (
+                                    <div className="flex items-center justify-center py-8">
+                                      <LoadingSpinner message="Loading route proxies..." />
+                                    </div>
+                                  ) : proxies && proxies.length === 0 ? (
+                                    <div className="text-center py-8" style={{ color: 'var(--text-secondary)' }}>
+                                      <i className="fas fa-network-wired text-2xl opacity-30 mb-2 block" style={{ color: 'var(--text-tertiary)' }}></i>
+                                      <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>No TCP routes found. Add a TCP route (e.g., tcp://localhost:5900) to create a proxy.</p>
+                                    </div>
+                                  ) : proxies && proxies.length > 0 ? (
+                                    <RouteProxyList tunnelId={tunnel.id} proxies={proxies} />
+                                  ) : null}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
                       </div>
                     )}
                   </div>
                 )
               })}
+
+              {/* Ungrouped Tunnels */}
+              {groupedTunnels.ungrouped.length > 0 && (
+                <div className="card overflow-hidden">
+                  <div
+                    className="px-4 py-3 cursor-pointer flex items-center justify-between border-b transition-colors"
+                    style={{
+                      backgroundColor: 'var(--bg-quaternary)',
+                      borderBottomColor: 'var(--border-color)'
+                    }}
+                    onClick={() => toggleGroup('ungrouped')}
+                  >
+                    <div className="flex items-center gap-3">
+                      <i className={`fas fa-chevron-${expandedGroups.has('ungrouped') ? 'down' : 'right'} text-sm`} style={{ color: 'var(--text-secondary)' }}></i>
+                      <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                        Ungrouped
+                      </span>
+                      <span className="text-xs px-2 py-1 rounded" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>
+                        {groupedTunnels.ungrouped.length} {groupedTunnels.ungrouped.length === 1 ? 'tunnel' : 'tunnels'}
+                      </span>
+                    </div>
+                  </div>
+                  {expandedGroups.has('ungrouped') && (
+                    <div className="p-4 space-y-3">
+                      {groupedTunnels.ungrouped.map((tunnel) => {
+                        const isExpanded = expandedTunnels.has(tunnel.id)
+                        const proxies = expandedProxiesByTunnel[tunnel.id]
+                        const isLoading = isExpanded && proxies === undefined
+                        
+                        return (
+                          <div key={tunnel.id} className="space-y-3">
+                            {/* Tunnel Header with Dropdown */}
+                            <div 
+                              className="bg-gradient-to-r from-purple-600/15 to-blue-600/15 border border-purple-500/30 rounded-lg p-3 cursor-pointer hover:border-purple-500/50 transition-colors"
+                              onClick={() => toggleTunnelDropdown(tunnel.id)}
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-gradient-to-br from-purple-600 to-blue-500 rounded-lg flex items-center justify-center text-white">
+                                  <i className="fas fa-server"></i>
+                                </div>
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <div className="text-xs font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>Tunnel</div>
+                                    {hasActiveProxies(tunnel.id) && (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 border rounded-full text-xs font-semibold" style={{
+                                        backgroundColor: isLightMode ? 'rgba(40, 167, 69, 0.15)' : 'rgba(40, 167, 69, 0.2)',
+                                        borderColor: isLightMode ? 'rgba(40, 167, 69, 0.25)' : 'rgba(40, 167, 69, 0.3)',
+                                        color: 'var(--success)'
+                                      }}>
+                                        <span className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: 'var(--success)' }}></span>
+                                        Active
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="font-mono text-sm font-semibold" style={{ color: 'var(--accent-primary)' }}>
+                                    {tunnel?.name || tunnel?.id || tunnel.id}
+                                    {tunnel?.status && (
+                                      <span className="ml-2 text-xs" style={{
+                                        color: tunnel.status === 'healthy' ? 'var(--success)' : 'var(--text-secondary)'
+                                      }}>
+                                        ({tunnel.status})
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  {isExpanded && proxies && proxies.length > 0 && (
+                                    <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                                      {proxies.length} {proxies.length === 1 ? 'proxy' : 'proxies'}
+                                    </div>
+                                  )}
+                                  <i className={`fas fa-chevron-${isExpanded ? 'up' : 'down'} transition-transform`} style={{ color: 'var(--text-secondary)' }}></i>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            {/* Route Proxies for this tunnel - shown when expanded */}
+                            {isExpanded && (
+                              <div className="ml-4 pl-4 border-l-2 border-purple-500/30">
+                                {isLoading ? (
+                                  <div className="flex items-center justify-center py-8">
+                                    <LoadingSpinner message="Loading route proxies..." />
+                                  </div>
+                                ) : proxies && proxies.length === 0 ? (
+                                  <div className="text-center py-8" style={{ color: 'var(--text-secondary)' }}>
+                                    <i className="fas fa-network-wired text-2xl opacity-30 mb-2 block" style={{ color: 'var(--text-tertiary)' }}></i>
+                                    <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>No TCP routes found. Add a TCP route (e.g., tcp://localhost:5900) to create a proxy.</p>
+                                  </div>
+                                ) : proxies && proxies.length > 0 ? (
+                                  <RouteProxyList tunnelId={tunnel.id} proxies={proxies} />
+                                ) : null}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Fallback: If no groups and no ungrouped, show all tunnels */}
+              {Object.keys(groupedTunnels.groups).length === 0 && groupedTunnels.ungrouped.length === 0 && tunnels.tunnels.length > 0 && (
+                <div className="space-y-3">
+                  {tunnels.tunnels.map((tunnel) => {
+                    const isExpanded = expandedTunnels.has(tunnel.id)
+                    const proxies = expandedProxiesByTunnel[tunnel.id]
+                    const isLoading = isExpanded && proxies === undefined
+                    
+                    return (
+                      <div key={tunnel.id} className="space-y-3">
+                        {/* Tunnel Header with Dropdown */}
+                        <div 
+                          className="bg-gradient-to-r from-purple-600/15 to-blue-600/15 border border-purple-500/30 rounded-lg p-3 cursor-pointer hover:border-purple-500/50 transition-colors"
+                          onClick={() => toggleTunnelDropdown(tunnel.id)}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-gradient-to-br from-purple-600 to-blue-500 rounded-lg flex items-center justify-center text-white">
+                              <i className="fas fa-server"></i>
+                            </div>
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <div className="text-xs font-semibold uppercase" style={{ color: 'var(--text-secondary)' }}>Tunnel</div>
+                                {hasActiveProxies(tunnel.id) && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 border rounded-full text-xs font-semibold" style={{
+                                    backgroundColor: isLightMode ? 'rgba(40, 167, 69, 0.15)' : 'rgba(40, 167, 69, 0.2)',
+                                    borderColor: isLightMode ? 'rgba(40, 167, 69, 0.25)' : 'rgba(40, 167, 69, 0.3)',
+                                    color: 'var(--success)'
+                                  }}>
+                                    <span className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: 'var(--success)' }}></span>
+                                    Active
+                                  </span>
+                                )}
+                              </div>
+                              <div className="font-mono text-sm font-semibold" style={{ color: 'var(--accent-primary)' }}>
+                                {tunnel?.name || tunnel?.id || tunnel.id}
+                                {tunnel?.status && (
+                                  <span className="ml-2 text-xs" style={{
+                                    color: tunnel.status === 'healthy' ? 'var(--success)' : 'var(--text-secondary)'
+                                  }}>
+                                    ({tunnel.status})
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              {isExpanded && proxies && proxies.length > 0 && (
+                                <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                                  {proxies.length} {proxies.length === 1 ? 'proxy' : 'proxies'}
+                                </div>
+                              )}
+                              <i className={`fas fa-chevron-${isExpanded ? 'up' : 'down'} transition-transform`} style={{ color: 'var(--text-secondary)' }}></i>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Route Proxies for this tunnel - shown when expanded */}
+                        {isExpanded && (
+                          <div className="ml-4 pl-4 border-l-2 border-purple-500/30">
+                            {isLoading ? (
+                              <div className="flex items-center justify-center py-8">
+                                <LoadingSpinner message="Loading route proxies..." />
+                              </div>
+                            ) : proxies && proxies.length === 0 ? (
+                              <div className="text-center py-8" style={{ color: 'var(--text-secondary)' }}>
+                                <i className="fas fa-network-wired text-2xl opacity-30 mb-2 block" style={{ color: 'var(--text-tertiary)' }}></i>
+                                <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>No TCP routes found. Add a TCP route (e.g., tcp://localhost:5900) to create a proxy.</p>
+                              </div>
+                            ) : proxies && proxies.length > 0 ? (
+                              <RouteProxyList tunnelId={tunnel.id} proxies={proxies} />
+                            ) : null}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>

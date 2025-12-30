@@ -1,6 +1,6 @@
 """
 Database Connection Pool
-Connection pooling برای بهبود عملکرد
+Connection pooling for improved performance
 """
 import aiosqlite
 from typing import Optional
@@ -12,7 +12,7 @@ DATABASE_PATH = get_database_path()
 
 
 class DatabasePool:
-    """Connection pool برای aiosqlite"""
+    """Connection pool for aiosqlite"""
     
     def __init__(self, db_path: Optional[str] = None):
         if db_path:

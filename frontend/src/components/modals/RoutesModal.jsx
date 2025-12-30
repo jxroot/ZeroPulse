@@ -102,6 +102,7 @@ const RoutesModal = () => {
     const defaultService = 'tcp://localhost:5986'
     const newRoute = {
       hostname: '',
+      path: '',
       type: 'TCP', // Set default type based on default service
       service: defaultService
     }
@@ -647,46 +648,88 @@ const RoutesModal = () => {
                               )}
                             </div>
                           ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                              {/* Subdomain */}
                               <div>
                                 <label className="block text-xs font-semibold uppercase mb-2" style={{ color: 'var(--text-secondary)' }}>
-                                  Hostname
-                                  {domain && <span className="ml-1" style={{ color: 'var(--text-tertiary)' }}>(must end with .{domain})</span>}
+                                  Subdomain
+                                  <span className="ml-1 font-normal lowercase" style={{ color: 'var(--text-tertiary)' }}>(optional)</span>
+                                </label>
+                                <div className="flex items-center gap-1">
+                                  <input
+                                    type="text"
+                                    value={(() => {
+                                      const hostname = route.hostname || ''
+                                      if (!hostname || !domain) return ''
+                                      if (hostname === domain) return ''
+                                      if (hostname.endsWith(`.${domain}`)) {
+                                        return hostname.slice(0, -(domain.length + 1))
+                                      }
+                                      return ''
+                                    })()}
+                                    onChange={(e) => {
+                                      const subdomain = e.target.value.trim()
+                                      const fullHostname = subdomain ? `${subdomain}.${domain}` : domain
+                                      handleUpdateRoute(index, 'hostname', fullHostname)
+                                    }}
+                                    className="flex-1 p-2 border rounded text-sm focus:outline-none"
+                                    style={{
+                                      backgroundColor: 'var(--bg-tertiary)',
+                                      borderColor: 'var(--border-color)',
+                                      color: 'var(--text-primary)'
+                                    }}
+                                    onFocus={(e) => e.currentTarget.style.borderColor = 'var(--accent-primary)'}
+                                    onBlur={(e) => e.currentTarget.style.borderColor = 'var(--border-color)'}
+                                    placeholder="subdomain"
+                                  />
+                                  <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>.</span>
+                                </div>
+                              </div>
+                              
+                              {/* Domain */}
+                              <div>
+                                <label className="block text-xs font-semibold uppercase mb-2" style={{ color: 'var(--text-secondary)' }}>
+                                  Domain
+                                  <span className="ml-1 font-normal lowercase" style={{ color: 'var(--text-tertiary)' }}>(Required)</span>
                                 </label>
                                 <input
                                   type="text"
-                                  value={route.hostname || ''}
-                                  onChange={(e) => handleUpdateRoute(index, 'hostname', e.target.value)}
-                                  className={`w-full p-2 border rounded text-sm focus:outline-none ${
-                                    domain && route.hostname && !route.hostname.endsWith(`.${domain}`) && route.hostname !== domain
-                                      ? 'border-red-500 focus:border-red-500'
-                                      : ''
-                                  }`}
+                                  value={domain || ''}
+                                  readOnly
+                                  className="w-full p-2 border rounded text-sm focus:outline-none"
+                                  style={{
+                                    backgroundColor: 'var(--bg-quaternary)',
+                                    borderColor: 'var(--border-color)',
+                                    color: 'var(--text-primary)',
+                                    cursor: 'not-allowed'
+                                  }}
+                                  placeholder="Select or type to search..."
+                                />
+                              </div>
+                              
+                              {/* Path */}
+                              <div>
+                                <label className="block text-xs font-semibold uppercase mb-2" style={{ color: 'var(--text-secondary)' }}>
+                                  Path
+                                  <span className="ml-1 font-normal lowercase" style={{ color: 'var(--text-tertiary)' }}>(optional)</span>
+                                </label>
+                                <input
+                                  type="text"
+                                  value={route.path || ''}
+                                  onChange={(e) => handleUpdateRoute(index, 'path', e.target.value)}
+                                  className="w-full p-2 border rounded text-sm font-mono focus:outline-none"
                                   style={{
                                     backgroundColor: 'var(--bg-tertiary)',
-                                    borderColor: domain && route.hostname && !route.hostname.endsWith(`.${domain}`) && route.hostname !== domain
-                                      ? 'var(--danger)'
-                                      : 'var(--border-color)',
+                                    borderColor: 'var(--border-color)',
                                     color: 'var(--text-primary)'
                                   }}
-                                  onFocus={(e) => {
-                                    if (!(domain && route.hostname && !route.hostname.endsWith(`.${domain}`) && route.hostname !== domain)) {
-                                      e.currentTarget.style.borderColor = 'var(--accent-primary)'
-                                    }
-                                  }}
-                                  onBlur={(e) => {
-                                    if (!(domain && route.hostname && !route.hostname.endsWith(`.${domain}`) && route.hostname !== domain)) {
-                                      e.currentTarget.style.borderColor = 'var(--border-color)'
-                                    }
-                                  }}
-                                  placeholder={domain ? `subdomain.${domain}` : 'example.com'}
+                                  onFocus={(e) => e.currentTarget.style.borderColor = 'var(--accent-primary)'}
+                                  onBlur={(e) => e.currentTarget.style.borderColor = 'var(--border-color)'}
+                                  placeholder="/api/*"
                                 />
-                                {domain && route.hostname && !route.hostname.endsWith(`.${domain}`) && route.hostname !== domain && (
-                                  <p className="text-xs mt-1" style={{ color: 'var(--danger)' }}>
-                                    Hostname must end with .{domain}
-                                  </p>
-                                )}
                               </div>
+                              {/* Type */}
                               <div>
                                 <label className="block text-xs font-semibold uppercase mb-2" style={{ color: 'var(--text-secondary)' }}>Type</label>
                                 <select
@@ -717,44 +760,47 @@ const RoutesModal = () => {
                                   <option value="SSH">SSH</option>
                                 </select>
                               </div>
-                              <div>
-                                <label className="block text-xs font-semibold uppercase mb-2" style={{ color: 'var(--text-secondary)' }}>Service</label>
-                                <div className="flex gap-2">
-                                  <input
-                                    type="text"
-                                    value={route.service || ''}
-                                    onChange={(e) => handleUpdateRoute(index, 'service', e.target.value)}
-                                    className="flex-1 p-2 border rounded text-sm font-mono focus:outline-none"
-                                    style={{
-                                      backgroundColor: 'var(--bg-tertiary)',
-                                      borderColor: 'var(--border-color)',
-                                      color: 'var(--text-primary)'
-                                    }}
-                                    onFocus={(e) => e.currentTarget.style.borderColor = 'var(--accent-primary)'}
-                                    onBlur={(e) => e.currentTarget.style.borderColor = 'var(--border-color)'}
-                                    placeholder="tcp://localhost:5986"
-                                  />
-                                  <button
-                                    onClick={() => handleRemoveRoute(index)}
-                                    className="px-3 transition-colors border rounded"
-                                    style={{ 
-                                      color: 'var(--danger)', 
-                                      borderColor: isLightMode ? 'rgba(220, 53, 69, 0.2)' : 'rgba(220, 53, 69, 0.3)' 
-                                    }}
-                                    onMouseEnter={(e) => {
-                                      e.currentTarget.style.opacity = '0.8'
-                                      e.currentTarget.style.borderColor = 'var(--danger)'
-                                    }}
-                                    onMouseLeave={(e) => {
-                                      e.currentTarget.style.opacity = '1'
-                                      e.currentTarget.style.borderColor = isLightMode ? 'rgba(220, 53, 69, 0.2)' : 'rgba(220, 53, 69, 0.3)'
-                                    }}
-                                    title="Remove route"
-                                  >
-                                    <i className="fas fa-trash"></i>
-                                  </button>
-                                </div>
                               </div>
+                              
+                              {/* Service Row */}
+                              <div className="mt-4">
+                              <label className="block text-xs font-semibold uppercase mb-2" style={{ color: 'var(--text-secondary)' }}>Service</label>
+                              <div className="flex gap-2">
+                                <input
+                                  type="text"
+                                  value={route.service || ''}
+                                  onChange={(e) => handleUpdateRoute(index, 'service', e.target.value)}
+                                  className="flex-1 p-2 border rounded text-sm font-mono focus:outline-none"
+                                  style={{
+                                    backgroundColor: 'var(--bg-tertiary)',
+                                    borderColor: 'var(--border-color)',
+                                    color: 'var(--text-primary)'
+                                  }}
+                                  onFocus={(e) => e.currentTarget.style.borderColor = 'var(--accent-primary)'}
+                                  onBlur={(e) => e.currentTarget.style.borderColor = 'var(--border-color)'}
+                                  placeholder="tcp://localhost:5986"
+                                />
+                                <button
+                                  onClick={() => handleRemoveRoute(index)}
+                                  className="px-3 transition-colors border rounded"
+                                  style={{ 
+                                    color: 'var(--danger)', 
+                                    borderColor: isLightMode ? 'rgba(220, 53, 69, 0.2)' : 'rgba(220, 53, 69, 0.3)' 
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.opacity = '0.8'
+                                    e.currentTarget.style.borderColor = 'var(--danger)'
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.opacity = '1'
+                                    e.currentTarget.style.borderColor = isLightMode ? 'rgba(220, 53, 69, 0.2)' : 'rgba(220, 53, 69, 0.3)'
+                                  }}
+                                  title="Remove route"
+                                >
+                                  <i className="fas fa-trash"></i>
+                                </button>
+                              </div>
+                            </div>
                             </div>
                           )}
                         </div>

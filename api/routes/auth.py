@@ -1,6 +1,6 @@
 """
 Authentication Routes
-Route های مربوط به احراز هویت
+Routes related to authentication
 """
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -44,7 +44,7 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
-    expires_in: int  # مدت زمان اعتبار به ثانیه
+    expires_in: int  # Expiration time in seconds
 
 
 class VerifyResponse(BaseModel):
@@ -56,9 +56,9 @@ class VerifyResponse(BaseModel):
 @limiter.limit("5/minute")  # Rate limit: 5 requests per minute
 async def login(login_data: LoginRequest, request: Request):
     """
-    لاگین کاربر و دریافت JWT token
+    User login and JWT token retrieval
     """
-    # بررسی credentials
+    # Check credentials
     if not await authenticate_user(login_data.username, login_data.password):
         raise AuthenticationError(
             message="Invalid credentials",
@@ -66,17 +66,17 @@ async def login(login_data: LoginRequest, request: Request):
             context={"username": login_data.username}
         )
     
-    # ایجاد token
+    # Create token
     access_token = create_access_token(
         data={"sub": login_data.username, "username": login_data.username}
     )
     
-    # افزودن نشست به session manager
+    # Add session to session manager
     client_ip = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
     await session_manager.add_session(access_token, login_data.username, client_ip, user_agent)
     
-    # محاسبه expires_in (به ثانیه)
+    # Calculate expires_in (in seconds)
     from api.utils.env import get_env_int
     expires_in = get_env_int("JWT_EXPIRATION_HOURS", 24) * 3600
     
@@ -90,15 +90,15 @@ async def login(login_data: LoginRequest, request: Request):
 @router.get("/verify", response_model=VerifyResponse)
 async def verify_token_endpoint(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """
-    بررسی اعتبار token
-    بررسی می‌کند که:
-    1. Token معتبر است (JWT signature)
-    2. Session در database وجود دارد
-    3. User در database وجود دارد و active است
+    Verify token validity
+    Checks that:
+    1. Token is valid (JWT signature)
+    2. Session exists in database
+    3. User exists in database and is active
     """
     token = credentials.credentials
     
-    # بررسی JWT token
+    # Check JWT token
     payload = verify_token(token)
     if payload is None:
         raise AuthenticationError(
@@ -116,16 +116,7 @@ async def verify_token_endpoint(credentials: HTTPAuthorizationCredentials = Depe
             error_code=ErrorCode.AUTH_TOKEN_INVALID
         )
     
-    # بررسی اینکه آیا session در database وجود دارد
-    session = await session_manager.get_session(token)
-    if not session:
-        raise AuthenticationError(
-            message="Session not found",
-            detail="Your session has been terminated. Please login again.",
-            error_code=ErrorCode.AUTH_TOKEN_INVALID
-        )
-    
-    # بررسی اینکه آیا user در database وجود دارد و active است
+    # Check if user exists in database and is active
     from api.services.database import Database
     db = Database()
     user = await db.get_user_by_username(username)
@@ -144,13 +135,23 @@ async def verify_token_endpoint(credentials: HTTPAuthorizationCredentials = Depe
             error_code=ErrorCode.AUTH_TOKEN_INVALID
         )
     
+    # Check if session exists in database
+    # If session not found but token is valid, create new session
+    session = await session_manager.get_session(token)
+    if not session:
+        # Token is valid but session not found - create new session
+        # This can happen when database restarted or session was cleaned up
+        logger.info(f"Session not found for valid token, recreating session for user: {username}")
+        # Create session without IP/user_agent (we don't have access to Request here)
+        await session_manager.add_session(token, username, None, None)
+    
     return VerifyResponse(valid=True, username=username)
 
 
 @router.post("/logout")
 async def logout(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """
-    خروج از سیستم و حذف نشست
+    Logout and remove session
     """
     token = credentials.credentials
     await session_manager.remove_session(token)
@@ -162,9 +163,9 @@ async def logout(credentials: HTTPAuthorizationCredentials = Depends(security)):
 @router.get("/sessions")
 async def get_active_sessions(current_user: dict = Depends(get_current_user)):
     """
-    دریافت لیست نشست‌های فعال
-    برای کاربران عادی: فقط session های خودشان
-    برای admin: همه session ها با flag is_current_user
+    Get list of active sessions
+    For regular users: only their own sessions
+    For admin: all sessions with is_current_user flag
     """
     try:
         all_sessions = await session_manager.get_all_sessions()
@@ -217,25 +218,25 @@ async def get_active_sessions(current_user: dict = Depends(get_current_user)):
 @router.delete("/sessions/{session_token}")
 async def terminate_session(session_token: str, current_user: dict = Depends(get_current_user)):
     """
-    خاتمه دادن یک نشست خاص
+    Terminate a specific session
     """
     try:
         from urllib.parse import unquote
         # URL decode the token
         session_token = unquote(session_token)
         
-        # جستجوی نشست با token جزئی در memory و database
+        # Search for session with partial token in memory and database
         full_token_to_remove = await session_manager.find_session_by_partial_token(session_token)
         
         if not full_token_to_remove:
-            # اگر پیدا نشد، شاید خود session_token یک full token است
-            # بررسی کنیم که آیا در sessions وجود دارد
+            # If not found, maybe session_token itself is a full token
+            # Check if it exists in sessions
             if await session_manager.get_session(session_token):
                 full_token_to_remove = session_token
             else:
                 raise HTTPException(status_code=404, detail="Session not found")
         
-        # بررسی اینکه full_token_to_remove واقعاً full token است
+        # Check that full_token_to_remove is actually a full token
         if len(full_token_to_remove) < 100:
             logger.warning(f"WARNING: Token seems too short ({len(full_token_to_remove)} chars), might be partial: {full_token_to_remove[:50]}...")
             # Try to find full token again
@@ -246,7 +247,7 @@ async def terminate_session(session_token: str, current_user: dict = Depends(get
         
         logger.info(f"Terminating session with full token (length: {len(full_token_to_remove)}): {full_token_to_remove[:30]}...")
         
-        # حذف session و اضافه کردن به blacklist
+        # Remove session and add to blacklist
         await session_manager.remove_session(full_token_to_remove)
         
         return {
@@ -275,10 +276,10 @@ async def terminate_session(session_token: str, current_user: dict = Depends(get
 @router.delete("/sessions")
 async def terminate_all_sessions(request: Request, current_user: dict = Depends(get_current_user)):
     """
-    خاتمه دادن تمام نشست‌ها (به جز نشست فعلی)
+    Terminate all sessions (except current session)
     """
     try:
-        # دریافت token فعلی از Authorization header
+        # Get current token from Authorization header
         current_token = None
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
@@ -289,8 +290,8 @@ async def terminate_all_sessions(request: Request, current_user: dict = Depends(
         
         logger.info(f"Terminating all sessions except current token: {current_token[:30]}...")
         
-        # دریافت تمام sessions از database
-        # باید از database استفاده کنیم تا full tokens را بگیریم
+        # Get all sessions from database
+        # Must use database to get full tokens
         tokens_to_remove = []
         
         # Get all sessions from database
@@ -324,7 +325,7 @@ async def terminate_all_sessions(request: Request, current_user: dict = Depends(
         
         logger.info(f"Found {len(tokens_to_remove)} sessions to terminate (excluding current token)")
         
-        # حذف تمام sessions به جز session فعلی
+        # Remove all sessions except current session
         count = 0
         for token in tokens_to_remove:
             try:

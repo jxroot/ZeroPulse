@@ -6,6 +6,7 @@ import { openModal as openRoutesModal } from '../../store/slices/routesSlice'
 import { formatDate } from '../../utils/helpers'
 import ConnectModal from '../modals/ConnectModal'
 import ModuleModalDynamic from '../modals/ModuleModalDynamic'
+import ManageTunnelModal from '../modals/ManageTunnelModal'
 
 const TunnelTableRow = ({ tunnel }) => {
   const dispatch = useDispatch()
@@ -17,6 +18,7 @@ const TunnelTableRow = ({ tunnel }) => {
   const [isDisconnecting, setIsDisconnecting] = useState(false)
   const [showConnectModal, setShowConnectModal] = useState(false)
   const [pendingConnectionType, setPendingConnectionType] = useState(null)
+  const [showManageModal, setShowManageModal] = useState(false)
 
   const winrmStatus = useMemo(() => {
     return tunnelsState.winrmStatus[tunnel.id] || { status: 'unknown', port: null, message: null }
@@ -82,8 +84,16 @@ const TunnelTableRow = ({ tunnel }) => {
     }
   }
 
+  const getStatusColor = () => {
+    if (tunnel.status === 'healthy') return '#10b981' // green
+    if (tunnel.status === 'inactive') return '#6b7280' // gray
+    return '#ef4444' // red (down)
+  }
+
   const statusBorderColor = tunnel.status === 'healthy' 
     ? 'border-l-4 border-l-green-500' 
+    : tunnel.status === 'inactive'
+    ? 'border-l-4 border-l-gray-500'
     : 'border-l-4 border-l-red-500'
 
   return (
@@ -91,7 +101,8 @@ const TunnelTableRow = ({ tunnel }) => {
     <tr 
       className="transition-colors"
       style={{
-        borderLeft: `4px solid ${tunnel.status === 'healthy' ? '#10b981' : '#ef4444'}`
+        borderLeft: `4px solid ${getStatusColor()}`,
+        opacity: tunnel.status === 'inactive' ? 0.6 : 1
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.backgroundColor = 'var(--bg-quaternary)'
@@ -101,9 +112,12 @@ const TunnelTableRow = ({ tunnel }) => {
       }}
     >
       {/* Name */}
-      <td className="px-4 py-3 whitespace-nowrap">
+      <td className="px-4 py-3">
         <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{tunnel.name}</div>
-        <div className="text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>{tunnel.id.substring(0, 8)}...</div>
+        <div className="text-xs font-mono mb-1" style={{ color: 'var(--text-secondary)' }}>
+          <span className="mr-1">Tunnel ID:</span>
+          {tunnel.id.substring(0, 8)}...
+        </div>
       </td>
 
       {/* Label */}
@@ -303,6 +317,13 @@ const TunnelTableRow = ({ tunnel }) => {
           >
             <i className="fas fa-route"></i>
           </button>
+          <button
+            onClick={() => setShowManageModal(true)}
+            className="px-2 py-1 bg-gradient-to-r from-[#17a2b8] to-[#138496] text-white rounded text-xs font-semibold hover:shadow-lg transition-all"
+            title="Manage Tunnel"
+          >
+            <i className="fas fa-cog"></i>
+          </button>
         </div>
       </td>
     </tr>
@@ -314,6 +335,13 @@ const TunnelTableRow = ({ tunnel }) => {
           setShowConnectModal(false)
           setPendingConnectionType(null)
         }}
+      />
+    )}
+    {showManageModal && (
+      <ManageTunnelModal
+        isOpen={showManageModal}
+        tunnel={tunnel}
+        onClose={() => setShowManageModal(false)}
       />
     )}
   </>

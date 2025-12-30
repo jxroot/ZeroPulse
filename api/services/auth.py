@@ -1,6 +1,6 @@
 """
 Authentication Service
-مدیریت احراز هویت با JWT
+JWT authentication management
 """
 from datetime import datetime, timedelta
 from typing import Optional
@@ -19,18 +19,18 @@ validate_production_secrets()
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """
-    ایجاد JWT access token
+    Create JWT access token
     
     Args:
-        data: داده‌های مورد نظر برای encode در token
-        expires_delta: مدت زمان اعتبار token (اختیاری)
+        data: Data to encode in token
+        expires_delta: Token expiration time (optional)
     
     Returns:
         JWT token string
     """
     to_encode = data.copy()
     
-    # اگر exp در data وجود دارد، از آن استفاده می‌کنیم (برای never expire)
+    # If exp exists in data, use it (for never expire)
     if "exp" not in to_encode:
         if expires_delta:
             expire = datetime.utcnow() + expires_delta
@@ -44,13 +44,13 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
 def verify_token(token: str) -> Optional[dict]:
     """
-    بررسی اعتبار JWT token
+    Verify JWT token validity
     
     Args:
         token: JWT token string
     
     Returns:
-        dict با اطلاعات user یا None اگر token نامعتبر باشد
+        dict with user information or None if token is invalid
     """
     try:
         payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
@@ -61,14 +61,14 @@ def verify_token(token: str) -> Optional[dict]:
 
 async def authenticate_user(username: str, password: str) -> bool:
     """
-    احراز هویت کاربر
+    Authenticate user
     
     Args:
-        username: نام کاربری
-        password: رمز عبور
+        username: Username
+        password: Password
     
     Returns:
-        True اگر credentials صحیح باشد، False در غیر این صورت
+        True if credentials are correct, False otherwise
     """
     from api.services.database import Database
     from datetime import datetime

@@ -1,6 +1,6 @@
 """
 Environment Variables Utilities
-ابزارهای خواندن environment variables
+Environment variable reading tools
 """
 import os
 from pathlib import Path

@@ -1,6 +1,6 @@
 """
 Validation and Sanitization Utilities
-ابزارهای اعتبارسنجی و پاکسازی داده‌ها
+Data validation and sanitization tools
 """
 import re
 from typing import Optional, Any

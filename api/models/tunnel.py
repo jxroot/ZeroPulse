@@ -5,7 +5,7 @@ import re
 
 
 class Connection(BaseModel):
-    """مدل Connection برای Tunnel"""
+    """Connection model for Tunnel"""
     colo_name: Optional[str] = None
     uuid: Optional[str] = None
     id: Optional[str] = None
@@ -29,10 +29,15 @@ class Tunnel(BaseModel):
     metadata: Optional[Dict[str, Any]] = {}
     status: str = "down"
     remote_config: Optional[bool] = False
-    # فیلدهای اضافی از database
+    # Additional fields from database
     hostname: Optional[str] = None
     token: Optional[str] = None
     label: Optional[str] = None
+    connection_type: Optional[str] = None
+    # Group fields
+    group_id: Optional[str] = None
+    group_name: Optional[str] = None
+    group_color: Optional[str] = None
 
 
 class TunnelCreate(BaseModel):
@@ -42,6 +47,9 @@ class TunnelCreate(BaseModel):
 
 class TunnelResponse(BaseModel):
     success: bool
+    tunnel_id: Optional[str] = None
+    token: Optional[str] = None
+    name: Optional[str] = None
     tunnel: Optional[Tunnel] = None
     message: Optional[str] = None
 
@@ -80,5 +88,44 @@ class TunnelLabelUpdate(BaseModel):
         if len(v) > 20:
             raise ValueError("Label must be 20 characters or less")
         
+        return v
+
+
+class TunnelUpdate(BaseModel):
+    """Model for updating tunnel info"""
+    name: Optional[str] = None
+    hostname: Optional[str] = None
+    
+    @field_validator('name', mode='before')
+    @classmethod
+    def validate_name(cls, v):
+        """Validate and sanitize name"""
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            v = str(v)
+        v = v.strip()
+        if not v:
+            return None
+        # Remove dangerous characters
+        v = re.sub(r'[<>"\';\\]', '', v)
+        if len(v) > 100:
+            raise ValueError("Name must be 100 characters or less")
+        return v
+    
+    @field_validator('hostname', mode='before')
+    @classmethod
+    def validate_hostname(cls, v):
+        """Validate and sanitize hostname"""
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            v = str(v)
+        v = v.strip()
+        if not v:
+            return None
+        # Basic hostname validation (RFC 1123)
+        if not re.match(r'^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$', v):
+            raise ValueError("Invalid hostname format")
         return v
 

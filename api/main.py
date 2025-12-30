@@ -5,7 +5,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from contextlib import asynccontextmanager
-from api.routes import tunnels, commands, auth, settings, history, ssh_sessions, module_control, users, setup, local_shell
+from api.routes import tunnels, commands, auth, settings, history, ssh_sessions, module_control, users, setup, local_shell, tunnel_groups
 from api.services.auth import verify_token
 from api.services.database import Database
 from api.utils.logger import setup_logger
@@ -91,10 +91,10 @@ app = FastAPI(
     Both documentation interfaces support token-based authentication via query parameter: `?token=YOUR_TOKEN`
     """,
     version="1.0.0",
-    terms_of_service="https://github.com/your-repo/terms",
+    terms_of_service="https://github.com/jxroot/zeropulse",
     contact={
         "name": "ZeroPulse C2 Support",
-        "url": "https://github.com/your-repo/issues",
+        "url": "https://github.com/jxroot/zeropulse/issues",
     },
     license_info={
         "name": "MIT",
@@ -136,6 +136,10 @@ app = FastAPI(
             "name": "users",
             "description": "User profile management. Single user system for managing user profile.",
         },
+        {
+            "name": "tunnel-groups",
+            "description": "Tunnel grouping and filtering. Manage tunnel groups, rules, and filter patterns.",
+        },
     ]
 )
 
@@ -169,6 +173,7 @@ app.include_router(ssh_sessions.router, prefix="/api/ssh-sessions")  # SSH Sessi
 app.include_router(module_control.router)  # Module Control Panel routes (protected)
 app.include_router(users.router)  # User profile routes (protected)
 app.include_router(local_shell.router, prefix="/api")  # Local shell WebSocket routes (protected)
+app.include_router(tunnel_groups.router)  # Tunnel groups routes (protected)
 
 
 # Serve static files (React build - frontend)
@@ -203,18 +208,18 @@ PUBLIC_PATHS = [
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     """
-    Middleware برای بررسی authentication
-    تمام API endpoints به جز public paths نیاز به authentication دارند
+    Middleware for authentication check
+    All API endpoints except public paths require authentication
     """
     path = request.url.path
     
-    # بررسی authentication برای /docs، /redoc و /openapi.json
+    # Check authentication for /docs, /redoc and /openapi.json
     if path.startswith("/docs") or path.startswith("/redoc") or path == "/openapi.json":
         token = None
         query_token = request.query_params.get("token")
         cookie_token = request.cookies.get("auth_token")
         
-        # بررسی token در Authorization header (برای API calls)
+        # Check token in Authorization header (for API calls)
         authorization = request.headers.get("Authorization")
         if authorization:
             try:
@@ -224,19 +229,19 @@ async def auth_middleware(request: Request, call_next):
             except ValueError:
                 token = None
         
-        # بررسی token در query parameter (برای browser access)
+        # Check token in query parameter (for browser access)
         if query_token and not token:
             token = query_token
         
-        # بررسی token در cookie (برای browser access)
+        # Check token in cookie (for browser access)
         if cookie_token and not token:
             token = cookie_token
         
-        # اگر token وجود دارد، بررسی اعتبار آن
+        # If token exists, verify its validity
         if token:
             payload = verify_token(token)
             if payload is None:
-                # Token نامعتبر - برای /openapi.json باید JSON error برگردانیم، برای /docs و /redoc redirect
+                # Invalid token - for /openapi.json return JSON error, for /docs and /redoc redirect
                 if path == "/openapi.json":
                     return JSONResponse(
                         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -244,12 +249,12 @@ async def auth_middleware(request: Request, call_next):
                     )
                 return RedirectResponse(url="/login", status_code=302)
             
-            # Token معتبر است - ادامه request
-            # اگر token از query parameter آمده و هنوز در cookie نیست، آن را به cookie اضافه می‌کنیم
-            # این کار باعث می‌شود که Swagger UI و ReDoc بتوانند از /openapi.json استفاده کنند
+            # Token is valid - continue request
+            # If token came from query parameter and is not in cookie yet, add it to cookie
+            # This allows Swagger UI and ReDoc to use /openapi.json
             response = await call_next(request)
             
-            # اگر token از query parameter آمده و هنوز در cookie نیست، آن را به cookie اضافه می‌کنیم
+            # If token came from query parameter and is not in cookie yet, add it to cookie
             if query_token and not cookie_token and not isinstance(response, RedirectResponse):
                 response.set_cookie(
                     key="auth_token",
@@ -261,7 +266,7 @@ async def auth_middleware(request: Request, call_next):
             
             return response
         else:
-            # Token وجود ندارد - برای /openapi.json باید JSON error برگردانیم، برای /docs و /redoc redirect
+            # Token does not exist - for /openapi.json return JSON error, for /docs and /redoc redirect
             if path == "/openapi.json":
                 return JSONResponse(
                     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -276,21 +281,21 @@ async def auth_middleware(request: Request, call_next):
         if os.path.exists(react_index_path):
             return FileResponse(react_index_path)
     
-    # بررسی اینکه path public است یا نه
+    # Check if path is public or not
     is_public = any(path.startswith(public_path) for public_path in PUBLIC_PATHS)
     
     if is_public:
         response = await call_next(request)
         return response
     
-    # برای API endpoints، بررسی token
+    # For API endpoints, check token
     if path.startswith("/api/"):
-        # استثنا برای auth endpoints
+        # Exception for auth endpoints
         if path.startswith("/api/auth/"):
             response = await call_next(request)
             return response
         
-        # بررسی Authorization header
+        # Check Authorization header
         authorization = request.headers.get("Authorization")
         if not authorization:
             return JSONResponse(
@@ -298,7 +303,7 @@ async def auth_middleware(request: Request, call_next):
                 content={"detail": "Not authenticated"}
             )
         
-        # استخراج token
+        # Extract token
         try:
             scheme, token = authorization.split()
             if scheme.lower() != "bearer":
@@ -312,7 +317,7 @@ async def auth_middleware(request: Request, call_next):
                 content={"detail": "Invalid authorization header"}
             )
         
-        # بررسی اعتبار token
+        # Verify token validity
         payload = verify_token(token)
         if payload is None:
             return JSONResponse(

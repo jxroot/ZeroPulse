@@ -72,7 +72,7 @@ def cleanup_dead_novnc_processes():
 @router.get("/check-novnc/{tunnel_id}")
 async def check_novnc(tunnel_id: str, current_user: dict = Depends(get_current_user)):
     """
-    بررسی وضعیت novnc برای یک tunnel
+    Check noVNC status for a tunnel
     """
     try:
         # First, check if VNC Server is installed on Windows
@@ -233,7 +233,7 @@ async def check_novnc(tunnel_id: str, current_user: dict = Depends(get_current_u
 @router.post("/start-novnc/{tunnel_id}")
 async def start_novnc(tunnel_id: str, novnc_data: dict, current_user: dict = Depends(get_current_user)):
     """
-    راه‌اندازی novnc برای یک tunnel
+    Start noVNC for a tunnel
     """
     try:
         # Get parameters
@@ -353,7 +353,7 @@ async def start_novnc(tunnel_id: str, novnc_data: dict, current_user: dict = Dep
 @router.post("/stop-novnc/{tunnel_id}")
 async def stop_novnc(tunnel_id: str, current_user: dict = Depends(get_current_user)):
     """
-    متوقف کردن novnc برای یک tunnel
+    Stop noVNC for a tunnel
     """
     try:
         novnc_info = process_manager.get_novnc(tunnel_id)

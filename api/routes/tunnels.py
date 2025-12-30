@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Optional
-from api.models.tunnel import Tunnel, TunnelCreate, TunnelResponse, Connection, TunnelLabelUpdate
+from api.models.tunnel import Tunnel, TunnelCreate, TunnelResponse, Connection, TunnelLabelUpdate, TunnelUpdate
 from api.services.cloudflare import CloudflareService
 from api.services.database import Database
 from api.dependencies import get_current_user
@@ -9,9 +9,8 @@ from api.utils.exceptions import TunnelNotFoundError, TunnelConfigurationError
 from api.utils.error_codes import ErrorCode
 from api.utils.validation import validate_tunnel_id, validate_hostname, sanitize_url, sanitize_string
 from api.utils.env import get_env
-from datetime import datetime
 import uuid
-import re
+import asyncio
 
 router = APIRouter(prefix="/api/tunnels", tags=["tunnels"])
 
@@ -70,15 +69,10 @@ async def list_tunnels(current_user: dict = Depends(get_current_user)):
         # Convert to Tunnel model format and filter
         tunnels = []
         for cf_tunnel in cloudflare_tunnels:
-            # Filter 1: Only tunnels where deleted_at = null (not deleted)
+            # Filter: Only tunnels where deleted_at = null (not deleted)
             deleted_at = cf_tunnel.get("deleted_at")
             if deleted_at is not None:
                 continue  # Skip deleted tunnels
-            
-            # Filter 2: Only tunnels whose name starts with "tunnel-"
-            tunnel_name = cf_tunnel.get("name", "")
-            if not tunnel_name.startswith("tunnel-"):
-                continue  # Skip tunnels whose name doesn't start with "tunnel-"
             
             # Check database for additional info (hostname, token)
             db_tunnel = await db.get_tunnel_by_id(cf_tunnel.get("id"))
@@ -116,12 +110,21 @@ async def list_tunnels(current_user: dict = Depends(get_current_user)):
                     # If we can't determine, default to winrm
                     connection_type = "winrm"
             
+            # Get tunnel name for group matching
+            tunnel_name = cf_tunnel.get("name", "")
+            
+            # Get group information for this tunnel
+            group_info = await db.get_tunnel_group_for_name(tunnel_name)
+            group_id = group_info.get("group_id") if group_info else None
+            group_name = group_info.get("group_name") if group_info else None
+            group_color = group_info.get("group_color") if group_info else None
+            
             tunnel = {
                 "id": cf_tunnel.get("id", ""),
                 "account_tag": cf_tunnel.get("account_tag"),
                 "created_at": cf_tunnel.get("created_at"),
                 "deleted_at": cf_tunnel.get("deleted_at"),
-                "name": cf_tunnel.get("name", ""),
+                "name": tunnel_name,
                 "connections": connections,
                 "conns_active_at": cf_tunnel.get("conns_active_at"),
                 "conns_inactive_at": cf_tunnel.get("conns_inactive_at"),
@@ -133,7 +136,11 @@ async def list_tunnels(current_user: dict = Depends(get_current_user)):
                 "hostname": db_tunnel.get("hostname") if db_tunnel else None,
                 "token": db_tunnel.get("token") if db_tunnel else None,
                 "connection_type": connection_type,
-                "label": db_tunnel.get("label") if db_tunnel else None
+                "label": db_tunnel.get("label") if db_tunnel else None,
+                # Group fields
+                "group_id": group_id,
+                "group_name": group_name,
+                "group_color": group_color
             }
             tunnels.append(Tunnel(**tunnel))
         
@@ -142,11 +149,45 @@ async def list_tunnels(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=f"Error getting tunnel list: {str(e)}")
 
 
-# TODO: بازنویسی با SDK رسمی Cloudflare
-# @router.post("/", response_model=TunnelResponse)
-# async def create_tunnel(tunnel_data: Optional[TunnelCreate] = None, current_user: dict = Depends(get_current_user)):
-#     """Create new Tunnel"""
-#     raise HTTPException(status_code=501, detail="Create tunnel endpoint is temporarily disabled. Will be reimplemented with official SDK.")
+@router.post("/", response_model=TunnelResponse)
+async def create_tunnel(tunnel_data: Optional[TunnelCreate] = None, current_user: dict = Depends(get_current_user)):
+    """Create new Tunnel"""
+    try:
+        db = Database()
+        cloudflare_service = get_cloudflare_service()
+        
+        # Generate tunnel name if not provided
+        tunnel_name = tunnel_data.name if tunnel_data and tunnel_data.name else f"tunnel-{uuid.uuid4()}"
+        
+        # Create tunnel in Cloudflare
+        result = await cloudflare_service.create_tunnel(tunnel_name, config_src="cloudflare")
+        
+        if not result or not result.get("id"):
+            raise HTTPException(status_code=500, detail="Failed to create tunnel")
+        
+        tunnel_id = result.get("id")
+        token = result.get("token")
+        tunnel_name = result.get("name", tunnel_name)
+        
+        # Save tunnel info to database
+        await db.save_tunnel_info(
+            tunnel_id, 
+            hostname=tunnel_data.hostname if tunnel_data else None, 
+            token=token,
+            name=tunnel_name
+        )
+        
+        return TunnelResponse(
+            success=True,
+            tunnel_id=tunnel_id,
+            token=token,
+            name=result.get("name", tunnel_name)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error creating tunnel: {e}")
+        raise HTTPException(status_code=500, detail=f"Error creating tunnel: {str(e)}")
 
 
 @router.get("/{tunnel_id}", response_model=Tunnel)
@@ -190,13 +231,6 @@ async def get_tunnel(tunnel_id: str, current_user: dict = Depends(get_current_us
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting tunnel: {str(e)}")
-
-
-# TODO: بازنویسی با SDK رسمی Cloudflare
-# @router.delete("/{tunnel_id}")
-# async def delete_tunnel(tunnel_id: str, current_user: dict = Depends(get_current_user)):
-#     """Delete Tunnel from Cloudflare"""
-#     raise HTTPException(status_code=501, detail="Delete tunnel endpoint is temporarily disabled. Will be reimplemented with official SDK.")
 
 
 @router.get("/{tunnel_id}/routes")
@@ -424,6 +458,7 @@ async def update_tunnel_routes(tunnel_id: str, routes_data: dict, current_user: 
             """Normalize route for comparison by extracting key fields"""
             return {
                 "hostname": route.get("hostname", "").strip().lower(),
+                "path": route.get("path", "").strip() if route.get("path") else "",
                 "service": route.get("service", "").strip().lower(),
                 "type": route.get("type", "").strip().upper() if route.get("type") else ""
             }
@@ -582,13 +617,13 @@ async def update_tunnel_routes(tunnel_id: str, routes_data: dict, current_user: 
                 else:
                     logger.info(f"Route type changed for {hostname} ({current_type} -> {new_type}), proxied will be recalculated")
             
-                # بررسی اینکه آیا DNS record واقعاً وجود دارد یا نه
+                # Check if DNS record actually exists
                 existing_dns_record = await get_cloudflare_service().find_dns_record(hostname)
                 dns_record_exists = existing_dns_record is not None
                 
-                # منطق ساده‌تر: اگر DNS record وجود دارد، update کن، وگرنه create کن
+                # Simpler logic: if DNS record exists, update it, otherwise create it
                 if dns_record_exists:
-                    # DNS record وجود دارد - همیشه update
+                    # DNS record exists - always update
                     dns_success = await get_cloudflare_service().update_dns_record(
                         hostname=hostname,
                         tunnel_id=tunnel_id,
@@ -597,7 +632,7 @@ async def update_tunnel_routes(tunnel_id: str, routes_data: dict, current_user: 
                     )
                     action = "updated"
                 else:
-                    # DNS record وجود ندارد - create
+                    # DNS record does not exist - create
                     dns_success = await get_cloudflare_service().create_dns_record(
                         hostname=hostname,
                         tunnel_id=tunnel_id,
@@ -793,4 +828,311 @@ async def update_tunnel_label(
     except Exception as e:
         logger.exception(f"Error updating tunnel label for {tunnel_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Error updating tunnel label: {str(e)}")
+
+
+@router.put("/{tunnel_id}")
+async def update_tunnel(
+    tunnel_id: str,
+    tunnel_data: TunnelUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Update Tunnel info (name, hostname)
+    
+    Uses Cloudflare SDK to update tunnel name in Cloudflare.
+    """
+    try:
+        # Validate tunnel_id format (UUID)
+        try:
+            tunnel_id = validate_tunnel_id(tunnel_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        
+        # Validate tunnel exists
+        cf_tunnel = await get_cloudflare_service().get_tunnel(tunnel_id)
+        if not cf_tunnel:
+            raise HTTPException(status_code=404, detail="Tunnel not found")
+        
+        cloudflare_service = get_cloudflare_service()
+        
+        # Prepare update data for Cloudflare
+        cloudflare_update_data = {}
+        if tunnel_data.name is not None:
+            cloudflare_update_data["name"] = tunnel_data.name
+        
+        # Update tunnel name in Cloudflare using SDK
+        if cloudflare_update_data:
+            try:
+                updated_tunnel = await asyncio.to_thread(
+                    cloudflare_service.sdk_client.zero_trust.tunnels.cloudflared.edit,
+                    tunnel_id=tunnel_id,
+                    account_id=cloudflare_service.account_id,
+                    **cloudflare_update_data
+                )
+                logger.info(f"Tunnel name updated in Cloudflare for {tunnel_id} by {current_user.get('username')}")
+            except Exception as e:
+                logger.exception(f"Error updating tunnel name in Cloudflare: {e}")
+                raise HTTPException(status_code=500, detail=f"Failed to update tunnel name in Cloudflare: {str(e)}")
+        
+        # Prepare update data for database
+        db_update_data = {}
+        if tunnel_data.name is not None:
+            db_update_data["name"] = tunnel_data.name
+        if tunnel_data.hostname is not None:
+            # Validate hostname if provided
+            if tunnel_data.hostname:
+                try:
+                    domain = get_env("CLOUDFLARE_DOMAIN", "")
+                    tunnel_data.hostname = validate_hostname(tunnel_data.hostname, domain=domain if domain else None)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=f"Invalid hostname: {str(e)}")
+            db_update_data["hostname"] = tunnel_data.hostname
+        
+        # Update in database
+        db = Database()
+        tunnel = await db.get_tunnel_by_id(tunnel_id)
+        if tunnel:
+            await db.update_tunnel(tunnel_id, db_update_data)
+        else:
+            # Create tunnel entry if doesn't exist
+            tunnel_data_dict = {
+                "id": tunnel_id,
+                "name": tunnel_data.name or cf_tunnel.get("name", ""),
+                "hostname": tunnel_data.hostname,
+                "token": None,
+                "status": "active",
+                "created_at": cf_tunnel.get("created_at", ""),
+                "account_id": get_env("CLOUDFLARE_ACCOUNT_ID", ""),
+            }
+            await db.add_tunnel(tunnel_data_dict)
+        
+        logger.info(f"Tunnel updated for {tunnel_id} by {current_user.get('username')}")
+        
+        return {
+            "success": True,
+            "message": "Tunnel updated successfully",
+            "tunnel_id": tunnel_id
+        }
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception(f"Error updating tunnel for {tunnel_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error updating tunnel: {str(e)}")
+
+
+@router.post("/{tunnel_id}/refresh-token")
+async def refresh_tunnel_token(tunnel_id: str, current_user: dict = Depends(get_current_user)):
+    """
+    Refresh Tunnel Token
+    
+    Generates a new token for the tunnel. The old token will be invalidated.
+    Note: This will prevent new connections made with the old token, but won't close existing connections.
+    
+    Uses Cloudflare SDK to get a new token. Getting a new token automatically invalidates the old one.
+    """
+    try:
+        # Validate tunnel_id format (UUID)
+        try:
+            tunnel_id = validate_tunnel_id(tunnel_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        
+        # Validate tunnel exists
+        cf_tunnel = await get_cloudflare_service().get_tunnel(tunnel_id)
+        if not cf_tunnel:
+            raise HTTPException(status_code=404, detail="Tunnel not found")
+        
+        cloudflare_service = get_cloudflare_service()
+        
+        # Get new token using Cloudflare SDK
+        # client.zero_trust.tunnels.cloudflared.token.get() gets/refreshes the token
+        try:
+            token_response = await asyncio.to_thread(
+                cloudflare_service.sdk_client.zero_trust.tunnels.cloudflared.token.get,
+                tunnel_id=tunnel_id,
+                account_id=cloudflare_service.account_id
+            )
+            
+            # Extract token from response
+            # TokenGetResponse should have the token as a string or in a result field
+            if hasattr(token_response, 'token'):
+                new_token = token_response.token
+            elif hasattr(token_response, 'result'):
+                new_token = token_response.result
+            elif isinstance(token_response, str):
+                new_token = token_response
+            elif hasattr(token_response, 'model_dump'):
+                token_dict = token_response.model_dump(mode='json')
+                new_token = token_dict.get('token') or token_dict.get('result')
+            elif hasattr(token_response, 'dict'):
+                token_dict = token_response.dict()
+                new_token = token_dict.get('token') or token_dict.get('result')
+            else:
+                # Try to get as string directly
+                new_token = str(token_response)
+            
+            if not new_token:
+                logger.error(f"Token not found in response: {token_response}")
+                raise HTTPException(status_code=500, detail="Token not found in response")
+            
+            # Update token in database
+            db = Database()
+            await db.update_tunnel(tunnel_id, {"token": new_token})
+            
+            logger.info(f"Token refreshed for tunnel {tunnel_id} by {current_user.get('username')}")
+            
+            return {
+                "success": True,
+                "message": "Token refreshed successfully",
+                "token": new_token,
+                "tunnel_id": tunnel_id
+            }
+        except Exception as e:
+            logger.exception(f"Error refreshing token using SDK: {e}")
+            # Check if it's a 404 or 403 error
+            error_str = str(e).lower()
+            if "404" in error_str or "not found" in error_str:
+                raise HTTPException(status_code=404, detail="Tunnel not found")
+            elif "403" in error_str or "permission" in error_str or "forbidden" in error_str:
+                raise HTTPException(status_code=403, detail="Permission denied")
+            else:
+                raise HTTPException(status_code=500, detail=f"Failed to refresh token: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error refreshing token for {tunnel_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error refreshing token: {str(e)}")
+
+
+@router.delete("/{tunnel_id}")
+async def delete_tunnel(tunnel_id: str, current_user: dict = Depends(get_current_user)):
+    """
+    Delete Tunnel from Cloudflare and database
+    
+    Process:
+    1. Get tunnel config and extract ingress rules
+    2. Delete all DNS records associated with ingress hostnames
+    3. Clear ingress rules (set to empty with catch-all)
+    4. Delete tunnel from Cloudflare
+    5. Delete tunnel from database
+    """
+    try:
+        # Validate tunnel_id format (UUID)
+        try:
+            tunnel_id = validate_tunnel_id(tunnel_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        
+        # Validate tunnel exists
+        cf_tunnel = await get_cloudflare_service().get_tunnel(tunnel_id)
+        if not cf_tunnel:
+            raise HTTPException(status_code=404, detail="Tunnel not found")
+        
+        cloudflare_service = get_cloudflare_service()
+        dns_deleted_count = 0
+        dns_failed_count = 0
+        
+        # Step 1: Get tunnel config and extract ingress rules
+        logger.info(f"Step 1: Getting tunnel config for {tunnel_id}")
+        config = await cloudflare_service.get_tunnel_config(tunnel_id)
+        hostnames_to_delete = set()
+        
+        if config:
+            config_data = config.get("config") or {}
+            ingress = config_data.get("ingress", []) if isinstance(config_data, dict) else []
+            
+            # Extract all hostnames from ingress rules (excluding catch-all)
+            for route in ingress:
+                hostname = route.get("hostname")
+                if hostname and route.get("service") != "http_status:404":
+                    hostnames_to_delete.add(hostname)
+            
+            logger.info(f"Found {len(hostnames_to_delete)} hostnames in ingress rules: {hostnames_to_delete}")
+            
+            # Step 2: Delete all DNS records associated with these hostnames
+            if hostnames_to_delete:
+                logger.info(f"Step 2: Deleting DNS records for {len(hostnames_to_delete)} hostnames")
+                for hostname in hostnames_to_delete:
+                    try:
+                        dns_deleted = await cloudflare_service.delete_dns_record(hostname, tunnel_id=tunnel_id)
+                        if dns_deleted:
+                            dns_deleted_count += 1
+                            logger.info(f"DNS record deleted for hostname: {hostname}")
+                        else:
+                            dns_failed_count += 1
+                            logger.warning(f"Failed to delete DNS record for hostname: {hostname}")
+                    except Exception as dns_error:
+                        dns_failed_count += 1
+                        logger.exception(f"Error deleting DNS record for {hostname}: {dns_error}")
+                        # Continue with other hostnames even if one fails
+                
+                logger.info(f"DNS deletion complete: {dns_deleted_count} deleted, {dns_failed_count} failed")
+            
+            # Step 3: Clear ingress rules (set to empty with only catch-all)
+            logger.info(f"Step 3: Clearing ingress rules for tunnel {tunnel_id}")
+            try:
+                # Set ingress to empty with only catch-all route
+                empty_ingress = [{"service": "http_status:404"}]
+                
+                # Get current config to preserve other fields
+                current_config_data = config_data.copy()
+                current_config_data["ingress"] = empty_ingress
+                
+                # Update tunnel config with empty ingress
+                update_config = {"config": current_config_data}
+                success = await cloudflare_service.update_tunnel_config(tunnel_id, update_config)
+                
+                if success:
+                    logger.info(f"Ingress rules cleared for tunnel {tunnel_id}")
+                else:
+                    logger.warning(f"Failed to clear ingress rules for tunnel {tunnel_id}, continuing with deletion")
+            except Exception as ingress_error:
+                logger.exception(f"Error clearing ingress rules: {ingress_error}")
+                # Continue with tunnel deletion even if ingress clearing fails
+        else:
+            logger.warning(f"No config found for tunnel {tunnel_id}, skipping ingress/DNS cleanup")
+        
+        # Step 4: Delete tunnel from Cloudflare
+        logger.info(f"Step 4: Deleting tunnel {tunnel_id} from Cloudflare")
+        try:
+            await asyncio.to_thread(
+                cloudflare_service.sdk_client.cloudflare_tunnels.delete,
+                account_id=cloudflare_service.account_id,
+                tunnel_id=tunnel_id
+            )
+            logger.info(f"Tunnel {tunnel_id} deleted from Cloudflare")
+        except Exception as e:
+            logger.exception(f"Error deleting tunnel from Cloudflare: {e}")
+            # Try REST API as fallback
+            try:
+                delete_url = f"{cloudflare_service.base_url}/accounts/{cloudflare_service.account_id}/cfd_tunnel/{tunnel_id}"
+                response = await cloudflare_service.http_client.delete(delete_url, headers=cloudflare_service.headers)
+                if response.status_code not in [200, 204]:
+                    logger.warning(f"Failed to delete tunnel from Cloudflare: {response.status_code}")
+                    raise HTTPException(status_code=500, detail=f"Failed to delete tunnel from Cloudflare: {response.status_code}")
+                logger.info(f"Tunnel {tunnel_id} deleted from Cloudflare via REST API")
+            except Exception as rest_error:
+                logger.exception(f"Error deleting tunnel via REST API: {rest_error}")
+                raise HTTPException(status_code=500, detail=f"Failed to delete tunnel from Cloudflare: {str(e)}")
+        
+        # Step 5: Delete from database
+        logger.info(f"Step 5: Deleting tunnel {tunnel_id} from database")
+        await db.delete_tunnel(tunnel_id)
+        
+        logger.info(f"Tunnel {tunnel_id} deleted successfully by {current_user.get('username')}. DNS records: {dns_deleted_count} deleted, {dns_failed_count} failed")
+        
+        return {
+            "success": True,
+            "message": "Tunnel deleted successfully",
+            "tunnel_id": tunnel_id,
+            "dns_records_deleted": dns_deleted_count,
+            "dns_records_failed": dns_failed_count
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error deleting tunnel {tunnel_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error deleting tunnel: {str(e)}")
 

@@ -3,6 +3,8 @@ import { useDispatch, useSelector } from 'react-redux'
 import { loadTunnels, refreshTunnels, restoreConnectionStatus } from '../store/slices/tunnelsSlice'
 import MainLayout from '../components/Layout/MainLayout'
 import TunnelList from '../components/tunnels/TunnelList'
+import TunnelSettingsModal from '../components/tunnels/TunnelSettingsModal'
+import CreateTunnelModal from '../components/modals/CreateTunnelModal'
 
 const REFRESH_INTERVAL = 30000 // 30 seconds
 
@@ -15,6 +17,8 @@ const Agents = () => {
     return saved !== null ? saved === 'true' : true
   })
   const [countdown, setCountdown] = useState(REFRESH_INTERVAL / 1000) // Countdown in seconds
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false)
+  const [createTunnelModalOpen, setCreateTunnelModalOpen] = useState(false)
   const intervalRef = useRef(null)
   const countdownRef = useRef(null)
 
@@ -120,36 +124,65 @@ const Agents = () => {
     <MainLayout title="Agents">
       <div className="space-y-6">
         {/* Refresh controls */}
-        <div className="flex justify-end items-center gap-2">
+        <div className="flex justify-between items-center">
           <button
-            onClick={toggleAutoRefresh}
-            className={`inline-flex items-center justify-center px-3 py-2 border-none rounded-full cursor-pointer text-sm font-medium transition-all duration-300 ${
-              autoRefresh 
-                ? 'bg-[#28a745] text-white hover:bg-[#218838]' 
-                : 'bg-[#6c757d] text-white hover:bg-[#5a6268]'
-            }`}
-            title={autoRefresh ? `Auto-refresh enabled (next refresh in ${countdown}s)` : 'Auto-refresh disabled - Click to enable'}
+            onClick={() => setCreateTunnelModalOpen(true)}
+            className="px-4 py-2 rounded-lg text-white text-sm font-medium transition-colors"
+            style={{ backgroundColor: 'var(--accent-primary)' }}
           >
-            <i className="fas fa-clock text-sm mr-1.5"></i>
-            {autoRefresh ? (
-              <span className="text-xs font-mono">{countdown}s</span>
-            ) : (
-              <span className="text-xs">Off</span>
-            )}
+            <i className="fas fa-plus mr-2"></i>
+            Create Tunnel
           </button>
-          <button
-            onClick={handleRefresh}
-            disabled={tunnels.loading || tunnels.restoringConnections}
-            className="w-9 h-9 flex items-center justify-center bg-purple-500/15 border border-purple-500/30 rounded-lg text-purple-400 hover:bg-purple-500/25 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-            title="Refresh"
-          >
-            <i className={`fas fa-sync-alt ${tunnels.loading || tunnels.restoringConnections ? 'fa-spin' : ''}`}></i>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={toggleAutoRefresh}
+              className={`inline-flex items-center justify-center px-3 py-2 border-none rounded-full cursor-pointer text-sm font-medium transition-all duration-300 ${
+                autoRefresh 
+                  ? 'bg-[#28a745] text-white hover:bg-[#218838]' 
+                  : 'bg-[#6c757d] text-white hover:bg-[#5a6268]'
+              }`}
+              title={autoRefresh ? `Auto-refresh enabled (next refresh in ${countdown}s)` : 'Auto-refresh disabled - Click to enable'}
+            >
+              <i className="fas fa-clock text-sm mr-1.5"></i>
+              {autoRefresh ? (
+                <span className="text-xs font-mono">{countdown}s</span>
+              ) : (
+                <span className="text-xs">Off</span>
+              )}
+            </button>
+            <button
+              onClick={handleRefresh}
+              disabled={tunnels.loading || tunnels.restoringConnections}
+              className="w-9 h-9 flex items-center justify-center bg-purple-500/15 border border-purple-500/30 rounded-lg text-purple-400 hover:bg-purple-500/25 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              title="Refresh"
+            >
+              <i className={`fas fa-sync-alt ${tunnels.loading || tunnels.restoringConnections ? 'fa-spin' : ''}`}></i>
+            </button>
+            <button
+              onClick={() => setSettingsModalOpen(true)}
+              className="w-9 h-9 flex items-center justify-center bg-blue-500/15 border border-blue-500/30 rounded-lg text-blue-400 hover:bg-blue-500/25 transition-colors"
+              title="Tunnel Settings"
+            >
+              <i className="fas fa-cog"></i>
+            </button>
+          </div>
         </div>
 
         {/* Tunnel List - handles its own loading state */}
         <TunnelList />
       </div>
+      
+      {/* Settings Modal */}
+      <TunnelSettingsModal
+        isOpen={settingsModalOpen}
+        onClose={() => setSettingsModalOpen(false)}
+      />
+      
+      {/* Create Tunnel Modal */}
+      <CreateTunnelModal
+        isOpen={createTunnelModalOpen}
+        onClose={() => setCreateTunnelModalOpen(false)}
+      />
     </MainLayout>
   )
 }

@@ -1,6 +1,6 @@
 """
 Complete seed script for all Module Control Panel categories
-این اسکریپت تمام دسته‌بندی‌ها، بخش‌ها و ماژول‌ها را اضافه می‌کند
+This script adds all categories, sections, and modules
 """
 
 import sys

@@ -1,6 +1,6 @@
 """
 Database Migration System
-سیستم migration برای دیتابیس
+Database migration system
 """
 import aiosqlite
 from typing import List, Dict, Optional

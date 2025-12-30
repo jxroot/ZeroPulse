@@ -13,6 +13,7 @@ import themeReducer from './slices/themeSlice'
 import alertReducer from './slices/alertSlice'
 import agentReducer from './slices/agentSlice'
 import usersReducer from './slices/usersSlice'
+import tunnelGroupsReducer from './slices/tunnelGroupsSlice'
 
 const store = configureStore({
   reducer: {
@@ -29,7 +30,8 @@ const store = configureStore({
     theme: themeReducer,
     alert: alertReducer,
     agent: agentReducer,
-    users: usersReducer
+    users: usersReducer,
+    tunnelGroups: tunnelGroupsReducer
   }
 })
 

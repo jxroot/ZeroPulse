@@ -1,6 +1,6 @@
 """
 User Management Routes
-مدیریت کاربر واحد
+Single user management
 """
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional

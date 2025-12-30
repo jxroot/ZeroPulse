@@ -203,11 +203,11 @@ class DatabaseError(C2SystemException):
 
 class AuthenticationError(C2SystemException):
     """Raised when authentication fails"""
-    def __init__(self, message: str = None, detail: str = None, context: Optional[Dict[str, Any]] = None):
+    def __init__(self, message: str = None, detail: str = None, error_code: ErrorCode = None, context: Optional[Dict[str, Any]] = None):
         super().__init__(
             message=message or "Authentication failed",
             detail=detail or "Invalid credentials or authentication token",
-            error_code=ErrorCode.AUTH_INVALID_CREDENTIALS,
+            error_code=error_code or ErrorCode.AUTH_INVALID_CREDENTIALS,
             context=context or {}
         )
 
