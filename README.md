@@ -11,7 +11,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.124.4-green.svg)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-19.2+-61DAFB.svg)](https://reactjs.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-<a href="https://www.codefactor.io/repository/github/jxroot/zeropulse/overview/main"><img src="https://www.codefactor.io/repository/github/jxroot/zeropulse/badge/main" alt="CodeFactor" /></a>
+[![CodeFactor](https://www.codefactor.io/repository/github/jxroot/zeropulse/badge/main)](https://www.codefactor.io/repository/github/jxroot/zeropulse/overview/main)
 </div>
 
 
