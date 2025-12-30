@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Data
+data/database.json
+*.db
+*.sqlite
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Certificates
+*.cer
+*.pem
+*.key
+
+# Deployment packages
+*.zip
+*_deployment_*.zip
+
+# Screenshots placeholder (keep directory structure)
+!docs/images/
+!docs/images/README.md
+
+
