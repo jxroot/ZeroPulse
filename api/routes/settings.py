@@ -207,7 +207,6 @@ async def execute_module(module_id: str, request_data: dict, current_user: dict 
         command_data_dict = {
             "id": str(uuid.uuid4()),
             "tunnel_id": tunnel_id,
-            "agent_id": None,
             "command": f"[Module: {module['name']}]\n{script}",
             "output": result.output or "",
             "error": result.error or "",
