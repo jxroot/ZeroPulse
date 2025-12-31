@@ -1,17 +1,27 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { useSelector } from 'react-redux'
+import { lazy, Suspense } from 'react'
 import App from '../App'
-import Login from '../pages/Login'
-import Landing from '../pages/Landing'
-import Setup from '../pages/Setup'
-import Agents from '../pages/Agents'
-import TunnelRoutes from '../pages/TunnelRoutes'
-import CommandHistory from '../pages/CommandHistory'
-import Settings from '../pages/Settings'
-import AgentScript from '../pages/AgentScript'
-import LocalShellWindow from '../pages/LocalShellWindow'
-import About from '../pages/About'
 import LoadingSpinner from '../components/common/LoadingSpinner'
+
+// Lazy load pages for better code splitting and performance
+const Login = lazy(() => import('../pages/Login'))
+const Landing = lazy(() => import('../pages/Landing'))
+const Setup = lazy(() => import('../pages/Setup'))
+const Agents = lazy(() => import('../pages/Agents'))
+const TunnelRoutes = lazy(() => import('../pages/TunnelRoutes'))
+const CommandHistory = lazy(() => import('../pages/CommandHistory'))
+const Settings = lazy(() => import('../pages/Settings'))
+const AgentScript = lazy(() => import('../pages/AgentScript'))
+const LocalShellWindow = lazy(() => import('../pages/LocalShellWindow'))
+const About = lazy(() => import('../pages/About'))
+
+// Loading fallback component
+const PageLoadingFallback = () => (
+  <div className="min-h-screen flex items-center justify-center bg-[#1e1e2d]">
+    <LoadingSpinner message="Loading..." />
+  </div>
+)
 
 // Auth guard component wrapper
 const ProtectedRouteWrapper = ({ children }) => {
@@ -19,11 +29,7 @@ const ProtectedRouteWrapper = ({ children }) => {
   
   // Wait for auth to be initialized
   if (!auth.initialized) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[#1e1e2d]">
-        <LoadingSpinner message="Checking authentication..." />
-      </div>
-    )
+    return <PageLoadingFallback />
   }
 
   // If not authenticated, redirect to login (which will check setup status and redirect to setup if needed)
@@ -31,7 +37,7 @@ const ProtectedRouteWrapper = ({ children }) => {
     return <Navigate to="/login" replace />
   }
 
-  return children
+  return <Suspense fallback={<PageLoadingFallback />}>{children}</Suspense>
 }
 
 // Public route component wrapper
@@ -40,11 +46,7 @@ const PublicRouteWrapper = ({ children }) => {
   
   // Wait for auth to be initialized
   if (!auth.initialized) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[#1e1e2d]">
-        <LoadingSpinner message="Checking authentication..." />
-      </div>
-    )
+    return <PageLoadingFallback />
   }
 
   // If authenticated, redirect to agents
@@ -52,7 +54,7 @@ const PublicRouteWrapper = ({ children }) => {
     return <Navigate to="/agents" replace />
   }
 
-  return children
+  return <Suspense fallback={<PageLoadingFallback />}>{children}</Suspense>
 }
 
 const router = createBrowserRouter([

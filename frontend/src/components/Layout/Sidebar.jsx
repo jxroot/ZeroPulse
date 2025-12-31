@@ -1,28 +1,32 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useSelector, useDispatch } from 'react-redux'
+import { useMemo, useCallback, memo } from 'react'
 import { logout } from '../../store/slices/authSlice'
 import { showConfirm } from '../../store/slices/alertSlice'
 
-const Sidebar = () => {
+const Sidebar = memo(() => {
   const navigate = useNavigate()
   const location = useLocation()
   const dispatch = useDispatch()
   const auth = useSelector(state => state.auth)
 
-  const menuItems = [
+  // Memoize menu items to prevent recreation on every render
+  const menuItems = useMemo(() => [
     { id: 'agents', label: 'Agents', icon: 'fas fa-laptop-code', path: '/agents', color: 'text-blue-400' },
     { id: 'tunnels', label: 'Route Proxies', icon: 'fas fa-network-wired', path: '/tunnels', color: 'text-cyan-400' },
     { id: 'history', label: 'Command History', icon: 'fas fa-history', path: '/history', color: 'text-orange-400' },
     { id: 'agent-script', label: 'Agent Script', icon: 'fas fa-code', path: '/AgentScript', color: 'text-red-400' },
     { id: 'settings', label: 'Settings', icon: 'fas fa-cog', path: '/settings', color: 'text-gray-400' },
     { id: 'about', label: 'About', icon: 'fas fa-info-circle', path: '/about', color: 'text-purple-400' }
-  ]
+  ], [])
 
-  const isActive = (path) => {
+  // Memoize isActive function
+  const isActive = useCallback((path) => {
     return location.pathname.startsWith(path)
-  }
+  }, [location.pathname])
 
-  const handleLogout = () => {
+  // Memoize logout handler
+  const handleLogout = useCallback(() => {
     dispatch(showConfirm({
       title: 'Logout',
       message: 'Are you sure you want to logout?',
@@ -36,7 +40,7 @@ const Sidebar = () => {
         // Modal will close automatically
       }
     }))
-  }
+  }, [dispatch, navigate])
 
   return (
     <div className="w-64 border-r flex flex-col" style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-color)' }}>
@@ -103,7 +107,9 @@ const Sidebar = () => {
       </div>
     </div>
   )
-}
+})
+
+Sidebar.displayName = 'Sidebar'
 
 export default Sidebar
 
